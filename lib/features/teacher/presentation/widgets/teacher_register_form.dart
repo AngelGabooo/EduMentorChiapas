@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert'; // Agregado para json.encode
+import 'dart:convert';
+import 'package:crypto/crypto.dart'; // Necesario para hashear contraseña
 import '../../domain/models/teacher_model.dart';
 
 class TeacherRegisterForm extends StatefulWidget {
@@ -48,47 +49,84 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
 
   void _registerTeacher() async {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+      if (_selectedSubjects.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Por favor selecciona al menos una materia')),
+        );
+        return;
+      }
+
+      setState(() => _isLoading = true);
 
       try {
-        // Simular registro (aquí integrarías con tu backend)
-        await Future.delayed(const Duration(seconds: 2));
+        final prefs = await SharedPreferences.getInstance();
+        final email = _emailController.text.trim().toLowerCase();
 
+        // Verificar si el correo ya está registrado (en registered_emails)
+        final registeredJson = prefs.getString('registered_emails') ?? '[]';
+        final List<dynamic> registered = json.decode(registeredJson);
+        if (registered.contains(email)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('El correo $email ya está registrado'), backgroundColor: Colors.red),
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        // Hashear contraseña
+        final passwordBytes = utf8.encode(_passwordController.text);
+        final hashedPassword = sha256.convert(passwordBytes).toString();
+
+        // Crear modelo del maestro
         final teacher = TeacherModel(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+          email: email,
+          password: hashedPassword,
           name: _nameController.text.trim(),
           subjects: _selectedSubjects,
           languages: _selectedLanguages,
           registrationNumber: _registrationNumberController.text.trim(),
+          userType: 'maestro',
         );
 
-        // Guardar en SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('email', teacher.email);
-        await prefs.setString('userType', 'teacher');
-        await prefs.setString('teacherData', json.encode(teacher.toJson())); // Corregido con json.encode
+        // GUARDAR COMO USUARIO REAL (igual que estudiante)
+        await prefs.setString('user_$email', json.encode({
+          'email': email,
+          'hashed_password': hashedPassword,
+          'role': 'maestro',
+          'full_name': teacher.name,
+          'profileCompleted': true,
+          'teacherData': teacher.toJson(), // Guardamos todo el perfil del maestro
+        }));
+
+        // GUARDAR SESIÓN ACTIVA (ESTO ES LO MÁS IMPORTANTE)
+        await prefs.setString('current_user_email', email);
+        await prefs.setString('email', email);
+        await prefs.setString('role', 'maestro');
+        await prefs.setString('full_name', teacher.name);
+
+        // Añadir a lista de registrados
+        registered.add(email);
+        await prefs.setString('registered_emails', json.encode(registered));
+
+        // Éxito
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('¡Registro como maestro exitoso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
 
         // Navegar al home del maestro
         if (mounted) {
           context.go('/teacher-home');
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error en el registro: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       } finally {
         if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
+          setState(() => _isLoading = false);
         }
       }
     }
@@ -119,21 +157,16 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
                           _selectedSubjects.remove(subject);
                         }
                       });
+                      setState(() {}); // Actualiza el texto principal
                     },
                   );
                 },
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
               ElevatedButton(
-                onPressed: () {
-                  setState(() {});
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.pop(context),
                 child: const Text('Aceptar'),
               ),
             ],
@@ -168,21 +201,16 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
                           _selectedLanguages.remove(language);
                         }
                       });
+                      setState(() {});
                     },
                   );
                 },
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
               ElevatedButton(
-                onPressed: () {
-                  setState(() {});
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.pop(context),
                 child: const Text('Aceptar'),
               ),
             ],
@@ -195,12 +223,10 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Form(
       key: _formKey,
       child: Column(
         children: [
-          // Nombre completo
           TextFormField(
             controller: _nameController,
             decoration: const InputDecoration(
@@ -215,8 +241,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Email
           TextFormField(
             controller: _emailController,
             decoration: const InputDecoration(
@@ -235,8 +259,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Contraseña
           TextFormField(
             controller: _passwordController,
             decoration: const InputDecoration(
@@ -255,8 +277,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Número de matrícula
           TextFormField(
             controller: _registrationNumberController,
             decoration: const InputDecoration(
@@ -271,8 +291,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Materias que imparte
           InkWell(
             onTap: _showSubjectsDialog,
             child: Container(
@@ -303,8 +321,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // Idiomas que habla
           InkWell(
             onTap: _showLanguagesDialog,
             child: Container(
@@ -335,8 +351,6 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
             ),
           ),
           const SizedBox(height: 32),
-
-          // Botón de registro
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -345,7 +359,7 @@ class _TeacherRegisterFormState extends State<TeacherRegisterForm> {
                   ? const SizedBox(
                 height: 20,
                 width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
                   : const Text('Registrarse como Maestro'),
             ),

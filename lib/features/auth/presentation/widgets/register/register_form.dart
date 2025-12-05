@@ -95,7 +95,26 @@ class _RegisterFormState extends State<RegisterForm> {
     return null;
   }
 
-  // MODIFICADO: Ahora soporta tutor también
+  // Verificar si el correo ya está registrado
+  Future<bool> _isEmailAlreadyRegistered(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    final registeredEmailsJson = prefs.getString('registered_emails') ?? '[]';
+    final List<dynamic> emailsList = json.decode(registeredEmailsJson);
+    return emailsList.contains(email.toLowerCase().trim());
+  }
+
+  // Añadir correo a la lista de registrados
+  Future<void> _addToRegisteredEmails(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    final registeredEmailsJson = prefs.getString('registered_emails') ?? '[]';
+    final List<dynamic> emailsList = json.decode(registeredEmailsJson);
+    final lowerEmail = email.toLowerCase().trim();
+    if (!emailsList.contains(lowerEmail)) {
+      emailsList.add(lowerEmail);
+      await prefs.setString('registered_emails', json.encode(emailsList));
+    }
+  }
+
   void _handleRoleSelection(String? value) {
     if (value == 'maestro') {
       _saveTemporaryData(role: 'maestro');
@@ -105,7 +124,7 @@ class _RegisterFormState extends State<RegisterForm> {
     } else if (value == 'tutor') {
       _saveTemporaryData(role: 'tutor');
       if (mounted) {
-        context.go('/tutor-register'); // Crea esta pantalla cuando quieras
+        context.go('/tutor-register');
       }
     } else {
       setState(() {
@@ -114,7 +133,6 @@ class _RegisterFormState extends State<RegisterForm> {
     }
   }
 
-  // MODIFICADO: Ahora recibe el rol como parámetro
   void _saveTemporaryData({required String role}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('temp_name', _nameController.text.trim());
@@ -122,12 +140,11 @@ class _RegisterFormState extends State<RegisterForm> {
     final passwordBytes = utf8.encode(_passwordController.text);
     final hashedPassword = sha256.convert(passwordBytes).toString();
     await prefs.setString('temp_hashed_password', hashedPassword);
-    await prefs.setString('temp_role', role); // Ahora guarda 'maestro' o 'tutor'
+    await prefs.setString('temp_role', role);
   }
 
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
-      // Validación adicional para el rol
       if (_selectedRole == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -144,28 +161,55 @@ class _RegisterFormState extends State<RegisterForm> {
         }
         return;
       }
+
+      final email = _emailController.text.trim().toLowerCase();
+
+      // VERIFICAR SI EL CORREO YA ESTÁ REGISTRADO
+      if (await _isEmailAlreadyRegistered(email)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('El correo $email ya está registrado'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('full_name', _nameController.text.trim());
-        await prefs.setString('email', _emailController.text.trim().toLowerCase());
-        // Hashear la contraseña para seguridad
+
+        // Hashear contraseña
         final passwordBytes = utf8.encode(_passwordController.text);
         final hashedPassword = sha256.convert(passwordBytes).toString();
-        await prefs.setString('hashed_password', hashedPassword);
-        // Guardar el rol seleccionado
+
+        // GUARDAR DATOS DEL USUARIO CON CLAVE ÚNICA POR CORREO
+        await prefs.setString('user_$email', json.encode({
+          'email': email,
+          'hashed_password': hashedPassword,
+          'role': _selectedRole!,
+          'full_name': _nameController.text.trim(),
+          'profileCompleted': false,
+        }));
+
+        // MANTENER compatibilidad con tu código anterior (por si otras pantallas lo usan)
+        await prefs.setString('email', email);
         await prefs.setString('role', _selectedRole!);
-        // Flag para permitir /profile sin redirect a home
+        await prefs.setString('full_name', _nameController.text.trim());
         await prefs.setBool('profileCompleted', false);
+
+        // Añadir a la lista de correos registrados
+        await _addToRegisteredEmails(email);
+
         print('DEBUG Registro: profileCompleted set to false');
+
         // Limpiar campos
         _nameController.clear();
         _emailController.clear();
         _passwordController.clear();
         _confirmPasswordController.clear();
         _selectedRole = null;
-        setState(() {
-          _acceptedTerms = false;
-        });
+        setState(() => _acceptedTerms = false);
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -173,7 +217,7 @@ class _RegisterFormState extends State<RegisterForm> {
               backgroundColor: Colors.green,
             ),
           );
-          // Navegar a profile después de un breve delay
+
           Future.delayed(const Duration(milliseconds: 1500), () {
             if (mounted) {
               print('DEBUG: Navegando a /profile');
@@ -199,20 +243,16 @@ class _RegisterFormState extends State<RegisterForm> {
       key: _formKey,
       child: Column(
         children: [
-          // Campo de nombre completo
           TextFormField(
             controller: _nameController,
             style: TextStyle(color: theme.colorScheme.onSurface),
             decoration: InputDecoration(
-              labelText:
-              'Nombre completo',
+              labelText: 'Nombre completo',
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.person_outline, color: theme.colorScheme.onSurface.withOpacity(0.6)),
             ),
             inputFormatters: [
-              FilteringTextInputFormatter.allow(
-                RegExp(r'[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]'),
-              ),
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]')),
             ],
             validator: (value) {
               if (value == null || value.isEmpty) {
@@ -225,7 +265,6 @@ class _RegisterFormState extends State<RegisterForm> {
             },
           ),
           const SizedBox(height: 20),
-          // Selección de rol (AHORA CON TUTOR)
           DropdownButtonFormField<String>(
             value: _selectedRole,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -233,34 +272,17 @@ class _RegisterFormState extends State<RegisterForm> {
               labelText: 'Selecciona tu rol',
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.school_outlined, color: theme.colorScheme.onSurface.withOpacity(0.6)),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
             items: const [
-              DropdownMenuItem(
-                value: 'estudiante',
-                child: Text('Estudiante'),
-              ),
-              DropdownMenuItem(
-                value: 'maestro',
-                child: Text('Maestro'),
-              ),
-              DropdownMenuItem(
-                value: 'tutor',
-                child: Text('Tutor'), // AÑADIDO
-              ),
+              DropdownMenuItem(value: 'estudiante', child: Text('Estudiante')),
+              DropdownMenuItem(value: 'maestro', child: Text('Maestro')),
+              DropdownMenuItem(value: 'tutor', child: Text('Tutor')),
             ],
             onChanged: _handleRoleSelection,
-            validator: (value) {
-              if (value == null) {
-                return 'Por favor selecciona tu rol';
-              }
-              return null;
-            },
+            validator: (value) => value == null ? 'Por favor selecciona tu rol' : null,
           ),
           const SizedBox(height: 20),
-          // Campo de email
           TextFormField(
             controller: _emailController,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -281,7 +303,6 @@ class _RegisterFormState extends State<RegisterForm> {
             },
           ),
           const SizedBox(height: 20),
-          // Resto del formulario (sin cambios)...
           TextFormField(
             controller: _passwordController,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -290,21 +311,13 @@ class _RegisterFormState extends State<RegisterForm> {
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.lock_outline, color: theme.colorScheme.onSurface.withOpacity(0.6)),
               suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
+                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: theme.colorScheme.onSurface.withOpacity(0.6)),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
             obscureText: _obscurePassword,
             validator: _validatePassword,
           ),
-          // Indicador de fortaleza de contraseña
           if (_passwordController.text.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
@@ -320,11 +333,7 @@ class _RegisterFormState extends State<RegisterForm> {
                 const SizedBox(width: 12),
                 Text(
                   _passwordStrength,
-                  style: TextStyle(
-                    color: _passwordStrengthColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: _passwordStrengthColor, fontWeight: FontWeight.w600, fontSize: 12),
                 ),
               ],
             ),
@@ -332,7 +341,6 @@ class _RegisterFormState extends State<RegisterForm> {
             _buildPasswordRequirements(isDarkMode),
           ],
           const SizedBox(height: 20),
-          // Campo de confirmar contraseña
           TextFormField(
             controller: _confirmPasswordController,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -341,44 +349,26 @@ class _RegisterFormState extends State<RegisterForm> {
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.lock_outline, color: theme.colorScheme.onSurface.withOpacity(0.6)),
               suffixIcon: IconButton(
-                icon: Icon(
-                  _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _obscureConfirmPassword = !_obscureConfirmPassword;
-                  });
-                },
+                icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility, color: theme.colorScheme.onSurface.withOpacity(0.6)),
+                onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
               ),
             ),
             obscureText: _obscureConfirmPassword,
             validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Por favor confirma tu contraseña';
-              }
-              if (value != _passwordController.text) {
-                return 'Las contraseñas no coinciden';
-              }
+              if (value == null || value.isEmpty) return 'Por favor confirma tu contraseña';
+              if (value != _passwordController.text) return 'Las contraseñas no coinciden';
               return null;
             },
           ),
           const SizedBox(height: 20),
-          // Términos y condiciones
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Checkbox(
                 value: _acceptedTerms,
-                onChanged: (value) {
-                  setState(() {
-                    _acceptedTerms = value ?? false;
-                  });
-                },
+                onChanged: (value) => setState(() => _acceptedTerms = value ?? false),
                 fillColor: MaterialStateProperty.resolveWith<Color>((states) {
-                  if (states.contains(MaterialState.selected)) {
-                    return theme.colorScheme.primary;
-                  }
+                  if (states.contains(MaterialState.selected)) return theme.colorScheme.primary;
                   return isDarkMode ? Colors.grey[600]! : Colors.grey[400]!;
                 }),
               ),
@@ -386,31 +376,11 @@ class _RegisterFormState extends State<RegisterForm> {
                 child: RichText(
                   text: TextSpan(
                     text: 'Acepto los ',
-                    style: TextStyle(
-                      color: isDarkMode ? Colors.grey[300] : Colors.grey[600],
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(color: isDarkMode ? Colors.grey[300] : Colors.grey[600], fontSize: 14),
                     children: [
-                      TextSpan(
-                        text: 'términos y condiciones',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextSpan(
-                        text: ' y la ',
-                        style: TextStyle(
-                          color: isDarkMode ? Colors.grey[300] : Colors.grey[600],
-                        ),
-                      ),
-                      TextSpan(
-                        text: 'política de privacidad',
-                        style: TextStyle(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      TextSpan(text: 'términos y condiciones', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                      TextSpan(text: ' y la ', style: TextStyle(color: isDarkMode ? Colors.grey[300] : Colors.grey[600])),
+                      TextSpan(text: 'política de privacidad', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -418,11 +388,8 @@ class _RegisterFormState extends State<RegisterForm> {
             ],
           ),
           const SizedBox(height: 30),
-          // Botón de registro (AHORA TAMBIÉN PARA TUTOR)
           if (_selectedRole == 'estudiante' || _selectedRole == 'tutor' || _selectedRole == null)
-            RegisterButton(
-              onPressed: _submitForm,
-            ),
+            RegisterButton(onPressed: _submitForm),
         ],
       ),
     );
@@ -430,14 +397,10 @@ class _RegisterFormState extends State<RegisterForm> {
 
   double _getPasswordStrengthValue() {
     switch (_passwordStrength) {
-      case 'baja':
-        return 0.2;
-      case 'media':
-        return 0.5;
-      case 'segura':
-        return 1.0;
-      default:
-        return 0.0;
+      case 'baja': return 0.2;
+      case 'media': return 0.5;
+      case 'segura': return 1.0;
+      default: return 0.0;
     }
   }
 
@@ -446,70 +409,27 @@ class _RegisterFormState extends State<RegisterForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildRequirementItem(
-          'Mínimo 8 caracteres',
-          password.length >= 8,
-          isDarkMode: isDarkMode,
-        ),
-        _buildRequirementItem(
-          'Al menos una mayúscula',
-          password.contains(RegExp(r'[A-Z]')),
-          isDarkMode: isDarkMode,
-        ),
-        _buildRequirementItem(
-          'Al menos una minúscula',
-          password.contains(RegExp(r'[a-z]')),
-          isDarkMode: isDarkMode,
-        ),
-        _buildRequirementItem(
-          'Al menos un número',
-          password.contains(RegExp(r'[0-9]')),
-          isDarkMode: isDarkMode,
-        ),
-        _buildRequirementItem(
-          'Carácter especial (opcional)',
-          password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]')),
-          optional: true,
-          isDarkMode: isDarkMode,
-        ),
+        _buildRequirementItem('Mínimo 8 caracteres', password.length >= 8, isDarkMode: isDarkMode),
+        _buildRequirementItem('Al menos una mayúscula', password.contains(RegExp(r'[A-Z]')), isDarkMode: isDarkMode),
+        _buildRequirementItem('Al menos una minúscula', password.contains(RegExp(r'[a-z]')), isDarkMode: isDarkMode),
+        _buildRequirementItem('Al menos un número', password.contains(RegExp(r'[0-9]')), isDarkMode: isDarkMode),
+        _buildRequirementItem('Carácter especial (opcional)', password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]')), optional: true, isDarkMode: isDarkMode),
       ],
     );
   }
 
   Widget _buildRequirementItem(String text, bool isMet, {bool optional = false, required bool isDarkMode}) {
-    final textColor = isDarkMode
-        ? (isMet ? Colors.green[300] : Colors.grey[400])
-        : (isMet ? Colors.green : Colors.grey);
+    final textColor = isDarkMode ? (isMet ? Colors.green[300] : Colors.grey[400]) : (isMet ? Colors.green : Colors.grey);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          Icon(
-            isMet ? Icons.check_circle : Icons.radio_button_unchecked,
-            color: isMet ? Colors.green : (isDarkMode ? Colors.grey[500] : Colors.grey),
-            size: 16,
-          ),
+          Icon(isMet ? Icons.check_circle : Icons.radio_button_unchecked, color: isMet ? Colors.green : (isDarkMode ? Colors.grey[500] : Colors.grey), size: 16),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 12,
-                decoration: TextDecoration.none,
-              ),
-            ),
-          ),
+          Expanded(child: Text(text, style: TextStyle(color: textColor, fontSize: 12))),
           if (optional) ...[
             const SizedBox(width: 4),
-            Text(
-              '(opcional)',
-              style: TextStyle(
-                color: isDarkMode ? Colors.grey[500] : Colors.grey,
-                fontSize: 10,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
+            Text('(opcional)', style: TextStyle(color: isDarkMode ? Colors.grey[500] : Colors.grey, fontSize: 10, fontStyle: FontStyle.italic)),
           ],
         ],
       ),

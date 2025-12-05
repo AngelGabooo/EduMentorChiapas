@@ -31,13 +31,9 @@ class _LoginFormState extends State<LoginForm> {
       final prefs = await SharedPreferences.getInstance();
       final storedRole = prefs.getString('role');
       if (storedRole != null && mounted) {
-        setState(() {
-          _selectedRole = storedRole;
-        });
+        setState(() => _selectedRole = storedRole);
       }
-    } catch (e) {
-      // Ignorar errores al cargar
-    }
+    } catch (e) {}
   }
 
   @override
@@ -50,102 +46,96 @@ class _LoginFormState extends State<LoginForm> {
   Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
       if (_selectedRole == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Debes seleccionar tu rol')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Debes seleccionar tu rol')));
         return;
       }
 
-      setState(() {
-        _isLoading = true;
-      });
+      setState(() => _isLoading = true);
 
       try {
         final prefs = await SharedPreferences.getInstance();
-        final storedEmail = prefs.getString('email')?.toLowerCase().trim();
-        final storedHashedPassword = prefs.getString('hashed_password');
-        final storedRole = prefs.getString('role');
 
-        final enteredEmail = _emailController.text.toLowerCase().trim();
-        final enteredPassword = _passwordController.text;
+        // 1. Normalizar correo ingresado
+        final enteredEmail = _emailController.text.trim().toLowerCase();
 
-        if (storedEmail == null || storedHashedPassword == null || storedRole == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No hay cuenta registrada. Por favor, regístrate primero.'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-          return;
-        }
+        // 2. Verificar si está en la lista de registrados
+        final registeredEmailsJson = prefs.getString('registered_emails') ?? '[]';
+        final List<dynamic> registeredEmails = json.decode(registeredEmailsJson);
 
-        if (enteredEmail != storedEmail) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Correo electrónico no encontrado.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
-        }
-
-        if (_selectedRole != storedRole) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Rol incorrecto. Verifica tu selección.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
-        }
-
-        final passwordBytes = utf8.encode(enteredPassword);
-        final hashedEnteredPassword = sha256.convert(passwordBytes).toString();
-
-        if (hashedEnteredPassword != storedHashedPassword) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Contraseña incorrecta.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-          return;
-        }
-
-        if (mounted) {
+        if (!registeredEmails.contains(enteredEmail)) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('¡Bienvenido!'),
-              backgroundColor: Colors.green,
-            ),
+                content: Text('Este correo no está registrado'),
+                backgroundColor: Colors.orange),
           );
-          context.go('/');
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        // 3. BUSCAR LOS DATOS DEL USUARIO ESPECÍFICO
+        final userDataJson = prefs.getString('user_$enteredEmail');
+
+        if (userDataJson == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Datos de usuario no encontrados'),
+                backgroundColor: Colors.red),
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        final Map<String, dynamic> userData = json.decode(userDataJson);
+
+        // 4. Validar rol
+        if (userData['role'] != _selectedRole) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Rol incorrecto'), backgroundColor: Colors.red),
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        // 5. Validar contraseña
+        final storedHashedPassword = userData['hashed_password'] as String;
+        final enteredBytes = utf8.encode(_passwordController.text);
+        final enteredHashed = sha256.convert(enteredBytes).toString();
+
+        if (enteredHashed != storedHashedPassword) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Contraseña incorrecta'), backgroundColor: Colors.red),
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        // LOGIN EXITOSO → Guardamos sesión actual CORRECTAMENTE
+        await prefs.setString('current_user_email', enteredEmail);
+        await prefs.setString('email', enteredEmail);
+        await prefs.setString('role', _selectedRole!);
+        await prefs.setString('full_name', userData['full_name'] ?? '');
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('¡Bienvenido!'), backgroundColor: Colors.green),
+        );
+
+        // CORRECCIÓN CLAVE: Ir directamente al home correcto SEGÚN EL ROL
+        if (mounted) {
+          if (_selectedRole == 'maestro') {
+            context.go('/teacher-home');
+          } else if (_selectedRole == 'tutor') {
+            context.go('/tutor-home');
+          } else {
+            context.go('/home');
+          }
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error al verificar: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
       } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
@@ -153,7 +143,6 @@ class _LoginFormState extends State<LoginForm> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Form(
       key: _formKey,
       child: Column(
@@ -168,18 +157,12 @@ class _LoginFormState extends State<LoginForm> {
             ),
             keyboardType: TextInputType.emailAddress,
             validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Por favor ingresa tu correo electrónico';
-              }
-              if (!value.contains('@')) {
-                return 'Por favor ingresa un correo válido';
-              }
+              if (value == null || value.isEmpty) return 'Por favor ingresa tu correo electrónico';
+              if (!value.contains('@')) return 'Por favor ingresa un correo válido';
               return null;
             },
           ),
           const SizedBox(height: 20),
-
-          // ROL CON TUTOR AÑADIDO
           DropdownButtonFormField<String>(
             value: _selectedRole,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -187,29 +170,17 @@ class _LoginFormState extends State<LoginForm> {
               labelText: 'Selecciona tu rol',
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.school_outlined, color: theme.colorScheme.onSurface.withOpacity(0.6)),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
             items: const [
               DropdownMenuItem(value: 'estudiante', child: Text('Estudiante')),
               DropdownMenuItem(value: 'maestro', child: Text('Maestro')),
-              DropdownMenuItem(value: 'tutor', child: Text('Tutor')), // AÑADIDO
+              DropdownMenuItem(value: 'tutor', child: Text('Tutor')),
             ],
-            onChanged: (value) {
-              setState(() {
-                _selectedRole = value;
-              });
-            },
-            validator: (value) {
-              if (value == null) {
-                return 'Por favor selecciona tu rol';
-              }
-              return null;
-            },
+            onChanged: (value) => setState(() => _selectedRole = value),
+            validator: (value) => value == null ? 'Por favor selecciona tu rol' : null,
           ),
           const SizedBox(height: 20),
-
           TextFormField(
             controller: _passwordController,
             style: TextStyle(color: theme.colorScheme.onSurface),
@@ -218,25 +189,15 @@ class _LoginFormState extends State<LoginForm> {
               labelStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7)),
               prefixIcon: Icon(Icons.lock_outline, color: theme.colorScheme.onSurface.withOpacity(0.6)),
               suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
-                ),
-                onPressed: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
+                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: theme.colorScheme.onSurface.withOpacity(0.6)),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
             obscureText: _obscurePassword,
             validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Por favor ingresa tu contraseña';
-              }
-              if (value.length < 8) {
-                return 'La contraseña debe tener al menos 8 caracteres';
-              }
+              if (value == null || value.isEmpty) return 'Por favor ingresa tu contraseña';
+              if (value.length < 8) return 'La contraseña debe tener al menos 8 caracteres';
               return null;
             },
           ),
@@ -244,20 +205,13 @@ class _LoginFormState extends State<LoginForm> {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
-              onPressed: () {
-                // Navegar a recuperación de contraseña
-              },
-              child: Text(
-                '¿Olvidaste tu contraseña?',
-                style: TextStyle(color: theme.colorScheme.primary),
-              ),
+              onPressed: () {},
+              child: Text('¿Olvidaste tu contraseña?',
+                  style: TextStyle(color: theme.colorScheme.primary)),
             ),
           ),
           const SizedBox(height: 30),
-          LoginButton(
-            onPressed: _submitForm,
-            isLoading: _isLoading,
-          ),
+          LoginButton(onPressed: _submitForm, isLoading: _isLoading),
         ],
       ),
     );

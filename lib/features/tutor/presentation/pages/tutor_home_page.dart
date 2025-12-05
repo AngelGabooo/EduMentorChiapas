@@ -72,10 +72,23 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
       ? 0
       : calificaciones.values.reduce((a, b) => a + b) / calificaciones.length;
 
+  // CERRAR SESIÓN CORREGIDO
   Future<void> _cerrarSesion() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    if (mounted) context.go('/');
+    await Future.wait([
+      prefs.remove('current_user_email'),
+      prefs.remove('email'),
+      prefs.remove('role'),
+      prefs.remove('full_name'),
+      prefs.remove('hashed_password'),
+      prefs.remove('hijo_nombre'),
+      prefs.remove('hijo_edad'),
+      prefs.remove('tutor_telefono'),
+      prefs.remove('profileCompleted'),
+    ]);
+    if (mounted) {
+      context.go('/login');
+    }
   }
 
   void _mostrarContactoMaestro() {
@@ -94,6 +107,20 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
 
     return Scaffold(
       backgroundColor: colors.background,
+      // FAB SACADO DEL NestedScrollView → AHORA ESTÁ EN EL Scaffold (correcto)
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _mostrarContactoMaestro,
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        icon: const Icon(Icons.chat_rounded),
+        label: const Text("Contactar Maestro"),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      // body: NestedScrollView → todo lo demás igual
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) {
           return [
@@ -357,22 +384,11 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _mostrarContactoMaestro,
-        backgroundColor: colors.primary,
-        foregroundColor: colors.onPrimary,
-        elevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        icon: const Icon(Icons.chat_rounded),
-        label: const Text("Contactar Maestro"),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 }
 
+// EL RESTO DEL CÓDIGO QUEDA 100% IGUAL (sin tocar nada)
 class _SubjectCard extends StatelessWidget {
   final String subject;
   final double grade;

@@ -57,14 +57,12 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
       });
       return;
     }
-
     int score = 0;
     if (password.length >= 8) score++;
     if (password.contains(RegExp(r'[A-Z]'))) score++;
     if (password.contains(RegExp(r'[a-z]'))) score++;
     if (password.contains(RegExp(r'[0-9]'))) score++;
     if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) score++;
-
     setState(() {
       if (score <= 2) {
         _passwordStrength = 'Débil';
@@ -92,43 +90,54 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
       final String password = _passwordController.text;
       final String hashedPassword = sha256.convert(utf8.encode(password)).toString();
 
-      // Guardar datos del tutor
-      await prefs.setString('full_name', name);
-      await prefs.setString('email', email);
-      await prefs.setString('hashed_password', hashedPassword);
-      await prefs.setString('role', 'tutor');
-      await prefs.setBool('profileCompleted', true);
-      await prefs.setBool('isLoggedIn', true);
+      // === AQUÍ ESTO ES LO QUE FALTABA: Guardar como usuario real ===
+      // Esto permite que el login lo reconozca después
+      await prefs.setString('user_$email', json.encode({
+        'email': email,
+        'hashed_password': hashedPassword,
+        'role': 'tutor',
+        'full_name': name,
+        'profileCompleted': true,
+      }));
 
-      // Guardar datos del hijo
+      // Añadir a la lista global de correos registrados
+      final registeredJson = prefs.getString('registered_emails') ?? '[]';
+      final List<dynamic> registered = json.decode(registeredJson);
+      if (!registered.contains(email)) {
+        registered.add(email);
+        await prefs.setString('registered_emails', json.encode(registered));
+      }
+      // ====================================================================
+
+      // GUARDAR TODO LO NECESARIO PARA QUE EL REDIRECT FUNCIONE
+      await prefs.setString('current_user_email', email);     // CLAVE PRINCIPAL
+      await prefs.setString('email', email);
+      await prefs.setString('role', 'tutor');
+      await prefs.setString('full_name', name);
+      await prefs.setString('hashed_password', hashedPassword);
+
+      // Datos específicos del tutor
       await prefs.setString('hijo_nombre', _nombreHijoController.text.trim());
       await prefs.setString('hijo_edad', _edadHijoController.text.trim());
       await prefs.setString('tutor_telefono', _telefonoController.text.trim());
+      await prefs.setBool('profileCompleted', true);
 
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('¡Registro completado! Bienvenido/a'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      // Ir directo al home del tutor
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('¡Registro completado! Bienvenido, padre/madre'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
-          ),
-        );
-
-        await Future.delayed(const Duration(milliseconds: 1800));
-
-        if (mounted) {
-          context.go('/tutor-home'); // Entra directo al home del tutor
-        }
+        context.go('/tutor-home');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al registrar: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al registrar: $e'), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -145,13 +154,11 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
       key: _formKey,
       child: Column(
         children: [
-          // === DATOS DEL TUTOR (PADRE/MADRE) ===
           Text(
             'Tus datos',
             style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _nameController,
             decoration: const InputDecoration(
@@ -161,7 +168,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             validator: (v) => v?.trim().isEmpty ?? true ? 'Ingresa tu nombre' : null,
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -176,7 +182,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _passwordController,
             obscureText: _obscurePassword,
@@ -197,7 +202,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
               return null;
             },
           ),
-
           if (_passwordController.text.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
@@ -215,7 +219,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             ),
           ],
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _confirmPasswordController,
             obscureText: _obscureConfirmPassword,
@@ -229,18 +232,14 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             ),
             validator: (v) => v != _passwordController.text ? 'Las contraseñas no coinciden' : null,
           ),
-
           const SizedBox(height: 32),
           const Divider(),
           const SizedBox(height: 16),
-
-          // === DATOS DEL HIJO/A ===
           Text(
             'Datos de tu hijo/a',
             style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _nombreHijoController,
             decoration: const InputDecoration(
@@ -250,7 +249,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             validator: (v) => v?.trim().isEmpty ?? true ? 'Ingresa el nombre del niño/a' : null,
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _edadHijoController,
             keyboardType: TextInputType.number,
@@ -267,7 +265,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             },
           ),
           const SizedBox(height: 16),
-
           TextFormField(
             controller: _telefonoController,
             keyboardType: TextInputType.phone,
@@ -277,10 +274,7 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
             ),
             validator: (v) => (v?.length ?? 0) < 10 ? 'Teléfono inválido (mín. 10 dígitos)' : null,
           ),
-
           const SizedBox(height: 40),
-
-          // BOTÓN FINAL
           TutorRegisterButton(
             onPressed: _finalizarRegistro,
             isLoading: _isLoading,

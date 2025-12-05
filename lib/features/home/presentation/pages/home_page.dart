@@ -12,10 +12,11 @@ class HomePage extends StatefulWidget {
   @override
   State<HomePage> createState() => _HomePageState();
 }
+
 class _HomePageState extends State<HomePage> {
   // Datos cargados del usuario
   String _userName = 'Usuario';
-  String _userAvatar = '👤';
+  String _userAvatar = 'User';
   // GlobalKey para el Scaffold
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   // Variables para selección múltiple
@@ -29,7 +30,7 @@ class _HomePageState extends State<HomePage> {
       'type': 'game_achievement',
       'title': '¡Logro Desbloqueado!',
       'message': 'Completaste el nivel avanzado de Matemáticas',
-      'icon': '🏆',
+      'icon': 'Trophy',
       'timestamp': 'Hace 5 min',
       'isRead': false,
       'color': const Color(0xFFFFD166),
@@ -39,7 +40,7 @@ class _HomePageState extends State<HomePage> {
       'type': 'community_like',
       'title': 'Nuevo like en tu publicación',
       'message': 'A Ana García le gustó tu publicación sobre derivadas',
-      'icon': '❤️',
+      'icon': 'Red Heart',
       'timestamp': 'Hace 15 min',
       'isRead': false,
       'color': const Color(0xFFEF476F),
@@ -49,7 +50,7 @@ class _HomePageState extends State<HomePage> {
       'type': 'community_comment',
       'title': 'Nuevo comentario',
       'message': 'Carlos López comentó: "¡Excelente consejo!"',
-      'icon': '💬',
+      'icon': 'Speech Bubble',
       'timestamp': 'Hace 30 min',
       'isRead': true,
       'color': const Color(0xFF118AB2),
@@ -59,7 +60,7 @@ class _HomePageState extends State<HomePage> {
       'type': 'game_level',
       'title': 'Nivel Completado',
       'message': 'Avanzaste al nivel intermedio de Vocabulario',
-      'icon': '⭐',
+      'icon': 'Star',
       'timestamp': 'Hace 1 hora',
       'isRead': true,
       'color': const Color(0xFF06D6A0),
@@ -69,7 +70,7 @@ class _HomePageState extends State<HomePage> {
       'type': 'community_share',
       'title': 'Publicación compartida',
       'message': 'María Fernández compartió tu consejo de estudio',
-      'icon': '🔄',
+      'icon': 'Repeat',
       'timestamp': 'Hace 2 horas',
       'isRead': true,
       'color': const Color(0xFF8B5CF6),
@@ -87,7 +88,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       _userName = prefs.getString('full_name') ?? 'Usuario';
-      _userAvatar = prefs.getString('selected_avatar') ?? '👤';
+      _userAvatar = prefs.getString('selected_avatar') ?? 'User';
       if (mounted) {
         setState(() {});
       }
@@ -95,20 +96,24 @@ class _HomePageState extends State<HomePage> {
       print('Error cargando datos de usuario: $e');
     }
   }
-  // Método para limpiar sesión y navegar a welcome
+
+  // FUNCIÓN DE LOGOUT CORREGIDA: AHORA SÍ TE SACA DEL HOME
   Future<void> _performLogout() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      // Limpia datos de sesión (email es clave para auth)
+
+      // ESTAS SON LAS CLAVES QUE DEBES BORRAR PARA QUE EL ROUTER DETECTE QUE NO HAY SESIÓN
+      await prefs.remove('current_user_email'); // LA MÁS IMPORTANTE
       await prefs.remove('email');
-      // Opcional: Limpia otros datos si quieres reset total (perfil, avatar, etc.)
+      await prefs.remove('role');
+      await prefs.remove('full_name');
       await prefs.remove('profileCompleted');
       await prefs.remove('selected_avatar');
       await prefs.remove('selected_subjects');
       await prefs.remove('selected_language');
-      await prefs.remove('full_name');
-      // Agrega más removes si tienes tokens, etc.
-      // Mensaje de éxito (opcional)
+      // Si usas más claves de sesión, agrégalas aquí
+
+      // Mensaje de éxito
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -117,9 +122,10 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       }
-      // Navega a welcome (/)
+
+      // Navegar al welcome y LIMPIAR TODA LA PILA DE NAVEGACIÓN
       if (mounted) {
-        context.go('/');
+        context.go('/'); // El router ahora detectará que no hay sesión y se quedará en Welcome
       }
     } catch (e) {
       print('Error al cerrar sesión: $e');
@@ -130,6 +136,7 @@ class _HomePageState extends State<HomePage> {
       }
     }
   }
+
   // Métodos para selección múltiple
   void _toggleNotificationSelection(String notificationId) {
     setState(() {
@@ -368,7 +375,7 @@ class _HomePageState extends State<HomePage> {
       ),
       drawer: AppDrawer(
         scaffoldKey: _scaffoldKey,
-        onLogout: _performLogout, // ← Pasa la función de logout al drawer
+        onLogout: _performLogout, // Pasa la función de logout al drawer
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -458,6 +465,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+
 // Pantalla de Salida/Despedida (sin cambios)
 class ExitScreen extends StatefulWidget {
   const ExitScreen({super.key});
@@ -490,12 +498,14 @@ class _ExitScreenState extends State<ExitScreen> {
   Future<void> _performLogoutDirect() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('current_user_email');
       await prefs.remove('email');
+      await prefs.remove('role');
+      await prefs.remove('full_name');
       await prefs.remove('profileCompleted');
       await prefs.remove('selected_avatar');
       await prefs.remove('selected_subjects');
       await prefs.remove('selected_language');
-      await prefs.remove('full_name');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1329,7 +1339,7 @@ class AppDrawer extends StatelessWidget {
               TextButton(
                 onPressed: () async {
                   Navigator.pop(context);
-                  await onLogout(); // ← Llama a la función de logout que limpia y navega
+                  await onLogout(); // Llama a la función de logout que limpia y navega
                 },
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.red,

@@ -1,7 +1,9 @@
+// student/presentation/pages/student_classes_page.dart
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+
 import '../../../teacher/domain/models/class_model.dart';
 import '../../../../config/theme/app_theme.dart';
 import '../widgets/student_class_card.dart';
@@ -27,13 +29,11 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-
     final prefs = await SharedPreferences.getInstance();
     _studentEmail = prefs.getString('email') ?? '';
-    final classesJson = prefs.getString('studentClasses_${_studentEmail}') ?? '[]';
-    final List<dynamic> classesList = json.decode(classesJson);
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    final classesJson = prefs.getString('studentClasses_$_studentEmail') ?? '[]';
+    final List<dynamic> classesList = json.decode(classesJson);
 
     setState(() {
       _classes = classesList.map((json) => ClassModel.fromJson(json)).toList();
@@ -41,16 +41,15 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
     });
   }
 
-  Future<void> _saveClasses() async {
+  Future<void> _saveStudentClasses() async {
     final prefs = await SharedPreferences.getInstance();
     final classesJson = json.encode(_classes.map((c) => c.toJson()).toList());
-    await prefs.setString('studentClasses_${_studentEmail}', classesJson);
+    await prefs.setString('studentClasses_$_studentEmail', classesJson);
   }
 
-  // NUEVO MÉTODO: Salir de una clase
+  // MÉTODO PARA SALIR DE UNA CLASE
   Future<void> _leaveClass(int index) async {
     final classToLeave = _classes[index];
-
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -65,9 +64,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Salir'),
           ),
         ],
@@ -78,7 +75,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
       setState(() {
         _classes.removeAt(index);
       });
-      _saveClasses();
+      await _saveStudentClasses();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -95,6 +92,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
 
   void _joinClass() {
     final codeController = TextEditingController();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -135,7 +133,8 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface),
+                    // CORREGIDO: era "IOError" → debe ser "onSurface"
+                    icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -178,8 +177,8 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                   onPressed: () {
                     final code = codeController.text.trim().toUpperCase();
                     if (code.isNotEmpty) {
-                      _validateAndJoinClass(code);
                       Navigator.pop(context);
+                      _validateAndJoinClass(code);
                     }
                   },
                   style: ElevatedButton.styleFrom(
@@ -204,42 +203,72 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
     );
   }
 
-  Future<void> _validateAndJoinClass(String code) async {
-    Map<String, ClassModel> validCodes = {
-      'ABC123': ClassModel(
-        id: '1',
-        name: 'Matemáticas Avanzadas',
-        subject: 'Matemáticas',
-        accessCode: 'ABC123',
-        students: [],
-        teacherEmail: 'teacher@example.com',
-        createdAt: DateTime.now(),
-      ),
-      'DEF456': ClassModel(
-        id: '2',
-        name: 'Historia Mundial Contemporánea',
-        subject: 'Historia',
-        accessCode: 'DEF456',
-        students: [],
-        teacherEmail: 'teacher2@example.com',
-        createdAt: DateTime.now(),
-      ),
-    };
+  // BUSCA LA CLASE REAL POR CÓDIGO DE ACCESO
+  Future<void> _validateAndJoinClass(String accessCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    ClassModel? foundClass;
 
-    if (validCodes.containsKey(code)) {
-      final newClass = validCodes[code]!;
-      newClass.students.add(_studentEmail);
+    for (String key in keys) {
+      if (key.startsWith('teacherClasses_')) {
+        final classesJson = prefs.getString(key) ?? '[]';
+        final List<dynamic> classesList = json.decode(classesJson);
+
+        for (var jsonClass in classesList) {
+          final classModel = ClassModel.fromJson(jsonClass as Map<String, dynamic>);
+          if (classModel.accessCode.toUpperCase() == accessCode) {
+            foundClass = classModel;
+            break;
+          }
+        }
+        if (foundClass != null) break;
+      }
+    }
+
+    if (foundClass != null) {
+      if (_classes.any((c) => c.id == foundClass!.id)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Ya estás inscrito en esta clase'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        return;
+      }
+
+      // CORREGIDO: copyWith no tiene parámetro 'students', así que creamos una copia manual
+      final enrolledClass = ClassModel(
+        id: foundClass.id,
+        name: foundClass.name,
+        subject: foundClass.subject,
+        accessCode: foundClass.accessCode,
+        students: List<String>.from(foundClass.students)..add(_studentEmail), // Aquí sí se agrega
+        teacherEmail: foundClass.teacherEmail,
+        createdAt: foundClass.createdAt,
+        description: foundClass.description,
+        section: foundClass.section,
+        room: foundClass.room,
+      );
+
       setState(() {
-        _classes.add(newClass);
+        _classes.add(enrolledClass);
       });
-      _saveClasses();
+      await _saveStudentClasses();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡Te has unido a ${newClass.name} exitosamente! 🎉'),
+            content: Text('¡Te has unido a "${enrolledClass.name}" exitosamente!'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'Ver clase',
+              textColor: Colors.white,
+              onPressed: () => _navigateToClass(enrolledClass),
+            ),
           ),
         );
       }
@@ -269,7 +298,6 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: theme.colorScheme.background,
       appBar: AppBar(
@@ -377,7 +405,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                 return StudentClassCard(
                   classModel: clase,
                   onTap: () => _navigateToClass(clase),
-                  onLeaveClass: () => _leaveClass(index), // NUEVO: Pasar callback
+                  onLeaveClass: () => _leaveClass(index),
                 );
               },
             ),

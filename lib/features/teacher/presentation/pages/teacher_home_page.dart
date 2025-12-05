@@ -51,25 +51,35 @@ class _TeacherHomePageState extends State<TeacherHomePage> with SingleTickerProv
     await prefs.setString('teacherClasses_${_teacherEmail}', classesJson);
   }
 
-  // CORRECCIÓN: Navegar al perfil del maestro con GoRouter
+  // Navegar al perfil del maestro
   void _navigateToProfile() {
     context.push('/teacher-profile-dashboard');
   }
 
-  // CORRECCIÓN: Cerrar sesión - Limpia userType y usa GoRouter
+  // CORREGIDO AL 100%: Cerrar sesión limpiando TODAS las claves críticas
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('email');
-    await prefs.remove('full_name');
-    await prefs.remove('role');
-    await prefs.remove('userType'); // NUEVO: Limpia userType para evitar loop
-    await prefs.setBool('profileCompleted', false);
+
+    // Limpiamos absolutamente todo lo relacionado con la sesión
+    await Future.wait([
+      prefs.remove('email'),
+      prefs.remove('full_name'),
+      prefs.remove('role'),
+      prefs.remove('userType'),
+      prefs.remove('current_user_email'), // CLAVE: esta línea evita que el redirect se vuelva loco
+      prefs.remove('profileCompleted'),
+    ]);
+
+    // Opcional: limpiar también las clases locales si quieres
+    // await prefs.remove('teacherClasses_${_teacherEmail}');
+
     if (mounted) {
-      context.go('/login'); // CAMBIO: Usa GoRouter para limpiar stack y ir a login
+      // Va directo al login sin pasar por redirect que pueda leer datos viejos
+      context.go('/login');
     }
   }
 
-  // NUEVO MÉTODO: Mostrar diálogo de confirmación para cerrar sesión
+  // Diálogo de confirmación para cerrar sesión
   void _showLogoutDialog() {
     showDialog(
       context: context,
@@ -376,15 +386,12 @@ class _TeacherHomePageState extends State<TeacherHomePage> with SingleTickerProv
               pinned: true,
               backgroundColor: theme.appBarTheme.backgroundColor,
               elevation: 0,
-              // NUEVO: Agregar acciones al AppBar
               actions: [
-                // Botón de perfil
                 IconButton(
                   icon: const Icon(Icons.person),
                   onPressed: _navigateToProfile,
                   tooltip: 'Mi Perfil',
                 ),
-                // Botón de cerrar sesión
                 IconButton(
                   icon: const Icon(Icons.logout, color: Colors.red),
                   onPressed: _showLogoutDialog,
@@ -447,11 +454,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> with SingleTickerProv
         body: TabBarView(
           controller: _tabController,
           children: [
-            // Pestaña: Mis Clases
             _buildClassesTab(),
-            // Pestaña: Alumnos
             _buildStudentsTab(),
-            // Pestaña: Calificaciones
             _buildGradesTab(),
           ],
         ),
@@ -511,7 +515,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> with SingleTickerProv
         ),
         child: Stack(
           children: [
-            // Header con color
             Positioned(
               top: 0,
               left: 0,
@@ -527,7 +530,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> with SingleTickerProv
                 ),
               ),
             ),
-            // Contenido
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(

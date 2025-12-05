@@ -1,3 +1,4 @@
+
 // AppConstants actualizada con la nueva ruta
 class AppConstants {
   static const String appName = 'EduMentor AI';
@@ -11,7 +12,7 @@ class AppConstants {
   static const String registerRoute = '/register';
   static const String teacherRegisterRoute = '/teacher-register';
   static const String tutorRegisterRoute = '/tutor-register';
-  static const String tutorHomeRoute = '/tutor-home';           // AÑADIDA
+  static const String tutorHomeRoute = '/tutor-home';
   static const String teacherHomeRoute = '/teacher-home';
   static const String teacherProfileDashboardRoute = '/teacher-profile-dashboard';
   static const String studentClassesRoute = '/student-classes';

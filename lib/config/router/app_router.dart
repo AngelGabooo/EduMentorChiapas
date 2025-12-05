@@ -36,51 +36,74 @@ import 'package:proyectoedumentor/features/tutor/presentation/pages/tutor_regist
 import 'package:proyectoedumentor/features/tutor/presentation/pages/tutor_home_page.dart';
 
 class AppRouter {
+  // FUNCIÓN CORREGIDA Y MEJORADA
   static Future<String?> _redirectBasedOnAuth(BuildContext context, GoRouterState state) async {
     final prefs = await SharedPreferences.getInstance();
-    final email = prefs.getString('email');
-    final role = prefs.getString('role') ?? 'estudiante'; // estudiante | maestro | tutor
 
-    print('DEBUG Redirect: Email: $email, Role: $role, Path: ${state.uri.path}');
+    // Usamos 'current_user_email' que guardamos en el login correcto
+    final currentEmail = prefs.getString('current_user_email');
+    final role = prefs.getString('role') ?? 'estudiante';
 
-    if (email != null && email.isNotEmpty) {
+    print('DEBUG Redirect: Email: $currentEmail, Role: $role, Path: ${state.uri.path}');
+
+    // SI HAY SESIÓN ACTIVA (current_user_email existe)
+    if (currentEmail != null && currentEmail.isNotEmpty) {
       String targetHome;
       if (role == 'maestro') {
         targetHome = '/teacher-home';
       } else if (role == 'tutor') {
-        targetHome = '/tutor-home'; // PADRES VAN AQUÍ
+        targetHome = '/tutor-home';
       } else {
         targetHome = '/home';
       }
 
-      // AÑADIDO: Si ya estás en tu home correcto → no redirigir
+      // Si ya está en su home correcto → no hacer nada
       if (state.uri.path == targetHome) {
         return null;
       }
 
-      // Si está en pantallas de auth y ya está logueado → redirigir al home correcto
-      if (state.uri.path == '/' ||
-          state.uri.path.startsWith('/auth') ||
-          state.uri.path == '/login' ||
-          state.uri.path == '/register' ||
-          state.uri.path == '/teacher-register' ||
-          state.uri.path == '/tutor-register') {
-        print('DEBUG: Redirigiendo a $targetHome (ya logueado)');
+      // Si está en login, register, welcome, auth → mandarlo a su home
+      final authPaths = [
+        '/',
+        '/auth',
+        '/login',
+        '/register',
+        '/teacher-register',
+        '/tutor-register',
+      ];
+
+      if (authPaths.contains(state.uri.path)) {
+        print('Sesión activa → redirigiendo a $targetHome');
         return targetHome;
       }
+
+      // Si intenta ir a otra ruta protegida → dejar pasar
       return null;
     }
 
-    // No logueado: redirigir a welcome si intenta acceder a rutas protegidas
-    if (state.uri.path != '/' &&
-        state.uri.path != '/auth' &&
-        state.uri.path != '/login' &&
-        state.uri.path != '/register' &&
-        state.uri.path != '/teacher-register' &&
-        state.uri.path != '/tutor-register') {
-      print('DEBUG: No logueado - redirigiendo a /');
+    // NO HAY SESIÓN ACTIVA
+    // Si intenta entrar a cualquier ruta protegida → mandarlo al welcome
+    final protectedPaths = [
+      '/home',
+      '/teacher-home',
+      '/tutor-home',
+      '/profile',
+      '/my-profile',
+      '/chat',
+      '/games',
+      '/library',
+      '/community',
+      '/process',
+      '/student-classes',
+      '/teacher-profile-dashboard',
+    ];
+
+    if (protectedPaths.contains(state.uri.path) || state.uri.path.startsWith('/game-play') || state.uri.path.startsWith('/book-detail')) {
+      print('No hay sesión → redirigiendo a welcome');
       return '/';
     }
+
+    // Si está en welcome, login, register → dejar pasar
     return null;
   }
 
