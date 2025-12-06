@@ -91,8 +91,8 @@ class _LibraryPageState extends State<LibraryPage> {
           'Matemáticas': 'matemáticas álgebra geometría',
           'Ciencias': 'ciencias naturales física química biología',
           'Literatura': 'literatura española clásicos',
-          'Historia': 'historia México España América',
-          'Idiomas': 'idiomas español inglés francés',
+          'Historia': 'historia México',
+          'Idiomas': 'idiomas español',
         };
         query = searchTerms[category] ?? category;
       }

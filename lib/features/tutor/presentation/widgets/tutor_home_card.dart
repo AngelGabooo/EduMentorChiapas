@@ -1,40 +1,46 @@
 // features/tutor/presentation/pages/widgets/tutor_home_card.dart
-
 import 'package:flutter/material.dart';
 
 class TutorHomeCard extends StatelessWidget {
   final String hijoNombre;
   final String hijoEdad;
-  final double promedio;
+  final double? promedio; // <- Ahora es nullable
 
   const TutorHomeCard({
     super.key,
     required this.hijoNombre,
     required this.hijoEdad,
-    required this.promedio,
+    this.promedio, // puede ser null
   });
 
+  // ---------- Colores, mensajes e iconos cuando SÍ hay promedio ----------
   Color get _colorPromedio {
-    if (promedio >= 9.0) return Colors.green;
-    if (promedio >= 8.0) return Colors.blue;
-    if (promedio >= 7.0) return Colors.orange;
+    final p = promedio ?? 0;
+    if (p >= 9.0) return Colors.green;
+    if (p >= 8.0) return Colors.blue;
+    if (p >= 7.0) return Colors.orange;
     return Colors.red;
   }
 
   String get _mensajePromedio {
-    if (promedio >= 9.5) return "¡Excelente trabajo! Sigue así";
-    if (promedio >= 9.0) return "Muy buen desempeño académico";
-    if (promedio >= 8.0) return "Buen progreso en los estudios";
-    if (promedio >= 7.0) return "Puede mejorar con más dedicación";
+    final p = promedio ?? 0;
+    if (p >= 9.5) return "¡Excelente trabajo! Sigue así";
+    if (p >= 9.0) return "Muy buen desempeño académico";
+    if (p >= 8.0) return "Buen progreso en los estudios";
+    if (p >= 7.0) return "Puede mejorar con más dedicación";
     return "Necesita apoyo adicional";
   }
 
   IconData get _iconPromedio {
-    if (promedio >= 9.0) return Icons.emoji_events_rounded;
-    if (promedio >= 8.0) return Icons.star_rounded;
-    if (promedio >= 7.0) return Icons.trending_up_rounded;
+    final p = promedio ?? 0;
+    if (p >= 9.0) return Icons.emoji_events_rounded;
+    if (p >= 8.0) return Icons.star_rounded;
+    if (p >= 7.0) return Icons.trending_up_rounded;
     return Icons.lightbulb_rounded;
   }
+
+  // ---------- Estado "sin calificaciones" ----------
+  bool get _sinCalificaciones => promedio == null;
 
   @override
   Widget build(BuildContext context) {
@@ -70,16 +76,14 @@ class TutorHomeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // --- Header con nombre y edad ---
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [
-                        colors.primary,
-                        colors.primaryContainer,
-                      ],
+                      colors: [colors.primary, colors.primaryContainer],
                     ),
                     shape: BoxShape.circle,
                     boxShadow: [
@@ -122,6 +126,8 @@ class TutorHomeCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 24),
+
+            // --- Tarjeta de promedio / sin calificaciones ---
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -145,15 +151,22 @@ class TutorHomeCard extends StatelessWidget {
                         Row(
                           children: [
                             Icon(
-                              _iconPromedio,
-                              color: _colorPromedio,
+                              _sinCalificaciones
+                                  ? Icons.hourglass_empty_rounded
+                                  : _iconPromedio,
+                              color: _sinCalificaciones
+                                  ? colors.onSurface.withOpacity(0.5)
+                                  : _colorPromedio,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              "Promedio General",
+                              _sinCalificaciones
+                                  ? "Sin calificaciones aún"
+                                  : "Promedio General",
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: colors.onSurface.withOpacity(0.8),
+                                color: colors.onSurface
+                                    .withOpacity(_sinCalificaciones ? 0.6 : 0.8),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -161,7 +174,9 @@ class TutorHomeCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _mensajePromedio,
+                          _sinCalificaciones
+                              ? "El alumno aún no cuenta con calificaciones registradas"
+                              : _mensajePromedio,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colors.onSurface.withOpacity(0.6),
                           ),
@@ -170,41 +185,66 @@ class TutorHomeCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          _colorPromedio.withOpacity(0.15),
-                          _colorPromedio.withOpacity(0.05),
+
+                  // --- Círculo con el número o mensaje de "sin promedio" ---
+                  if (_sinCalificaciones)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceVariant.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: colors.onSurface.withOpacity(0.2),
+                          width: 2,
+                        ),
+                      ),
+                      child: Text(
+                        "—",
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 32,
+                          color: colors.onSurface.withOpacity(0.5),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            _colorPromedio.withOpacity(0.15),
+                            _colorPromedio.withOpacity(0.05),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _colorPromedio.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            promedio!.toStringAsFixed(1),
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: _colorPromedio,
+                              fontSize: 28,
+                            ),
+                          ),
+                          Text(
+                            "/10",
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: _colorPromedio.withOpacity(0.7),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ],
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _colorPromedio.withOpacity(0.3),
-                        width: 2,
-                      ),
                     ),
-                    child: Column(
-                      children: [
-                        Text(
-                          promedio.toStringAsFixed(1),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: _colorPromedio,
-                            fontSize: 28,
-                          ),
-                        ),
-                        Text(
-                          "/10",
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: _colorPromedio.withOpacity(0.7),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),

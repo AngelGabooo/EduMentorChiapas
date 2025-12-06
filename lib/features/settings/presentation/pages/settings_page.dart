@@ -21,9 +21,9 @@ class _SettingsPageState extends State<SettingsPage> {
   final List<String> _languages = [
     'Español',
     'English',
-    'Français',
-    'Deutsch',
-    'Italiano'
+    'Tsotsil',
+    'Tseltal',
+    'Zoque'
   ];
 
   final List<String> _fontSizes = [
