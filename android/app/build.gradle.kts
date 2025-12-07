@@ -1,59 +1,55 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-import java.util.Properties
-        import java.io.FileInputStream
+android {
+    namespace = "com.angel.edumentor"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
 
-        android {
-            namespace = "com.angel.edumentor"
-            compileSdk = flutter.compileSdkVersion
-            ndkVersion = flutter.ndkVersion
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
 
-            // --- CARGAR ARCHIVO key.properties ---
-            val keystoreProperties = Properties()
-            val keystorePropertiesFile = rootProject.file("key.properties")
-            if (keystorePropertiesFile.exists()) {
-                keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-            }
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_11.toString()
+    }
 
-            compileOptions {
-                sourceCompatibility = JavaVersion.VERSION_11
-                targetCompatibility = JavaVersion.VERSION_11
-            }
+    defaultConfig {
+        applicationId = "com.angel.edumentor"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
 
-            kotlinOptions {
-                jvmTarget = JavaVersion.VERSION_11.toString()
-            }
-
-            defaultConfig {
-                applicationId = "com.angel.edumentor"
-                minSdk = flutter.minSdkVersion
-                targetSdk = flutter.targetSdkVersion
-                versionCode = flutter.versionCode
-                versionName = flutter.versionName
-            }
-
-            signingConfigs {
-                create("release") {
-                    keyAlias = keystoreProperties["keyAlias"] as String?
-                    keyPassword = keystoreProperties["keyPassword"] as String?
-                    storeFile = file(keystoreProperties["storeFile"] as String)
-                    storePassword = keystoreProperties["storePassword"] as String?
-                }
-            }
-
-            buildTypes {
-                release {
-                    isMinifyEnabled = false
-                    isShrinkResources = false  // ← AGREGADO PARA EVITAR EL ERROR
-                    signingConfig = signingConfigs.getByName("release")
-                }
-            }
+    // CLAVE DIRECTA (sin key.properties → nunca falla)
+    signingConfigs {
+        create("release") {
+            keyAlias = "upload"
+            keyPassword = "123456"
+            storePassword = "123456"
+            storeFile = file("upload-key.jks")
         }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
 
 flutter {
     source = "../.."

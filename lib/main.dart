@@ -6,6 +6,7 @@ import 'package:proyectoedumentor/config/router/app_router.dart';
 import 'package:proyectoedumentor/config/theme/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized(); // sigue siendo buena práctica
   runApp(const MyApp());
 }
 
@@ -16,28 +17,16 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => ThemeProvider()),
-        ChangeNotifierProvider(create: (context) => ProgressProvider()), // loadProgress se llama post-frame
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => ProgressProvider()),
       ],
-      child: _ProgressInitializer(
-        child: Consumer<ThemeProvider>(
-          builder: (context, themeProvider, child) {
-            return MaterialApp.router(
-              title: 'EduMentor',
-              debugShowCheckedModeBanner: false,
-              theme: AppTheme.getLightTheme(fontSizeSetting: themeProvider.fontSizeSetting),
-              darkTheme: AppTheme.getDarkTheme(fontSizeSetting: themeProvider.fontSizeSetting),
-              themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-              routerConfig: AppRouter.router,
-            );
-          },
-        ),
+      child: const _ProgressInitializer(
+        child: _ThemedApp(),
       ),
     );
   }
 }
 
-// Inicializador async para ProgressProvider
 class _ProgressInitializer extends StatefulWidget {
   final Widget child;
   const _ProgressInitializer({required this.child});
@@ -56,7 +45,25 @@ class _ProgressInitializerState extends State<_ProgressInitializer> {
   }
 
   @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+class _ThemedApp extends StatelessWidget {
+  const _ThemedApp();
+
+  @override
   Widget build(BuildContext context) {
-    return widget.child;
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp.router(
+          title: 'EduMentor',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.getLightTheme(fontSizeSetting: themeProvider.fontSizeSetting),
+          darkTheme: AppTheme.getDarkTheme(fontSizeSetting: themeProvider.fontSizeSetting),
+          themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          routerConfig: AppRouter.router,
+        );
+      },
+    );
   }
 }

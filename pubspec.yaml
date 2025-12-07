@@ -1,7 +1,7 @@
 name: proyectoedumentor
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.0+8
+version: 1.0.0+10
 
 environment:
   sdk: ^3.9.2
@@ -21,11 +21,11 @@ dependencies:
   url_launcher: ^6.3.0
   intl: any
   crypto: ^3.0.5
-  google_sign_in: ^6.2.1
   open_file: ^3.3.2
   file_picker: ^8.1.2
   path: ^1.8.3
   path_provider: ^2.1.2
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:
@@ -38,3 +38,4 @@ flutter:
   assets:
     - assets/img/
     - assets/icon/
+    - assets/icon/google.png
