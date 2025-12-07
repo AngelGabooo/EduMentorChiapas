@@ -7,7 +7,7 @@ import 'dart:convert';
 import '../../../teacher/domain/models/class_model.dart';
 import '../../../../config/theme/app_theme.dart';
 import '../widgets/student_class_card.dart';
-import '../../../teacher/presentation/pages/class_detail_page.dart';
+import 'student_class_detail_page.dart';
 
 class StudentClassesPage extends StatefulWidget {
   const StudentClassesPage({super.key});
@@ -54,14 +54,9 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Salir de la clase'),
-        content: Text(
-          '¿Estás seguro de que quieres salir de "${classToLeave.name}"?',
-        ),
+        content: Text('¿Estás seguro de que quieres salir de "${classToLeave.name}"?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -72,9 +67,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
     );
 
     if (confirm == true) {
-      setState(() {
-        _classes.removeAt(index);
-      });
+      setState(() => _classes.removeAt(index));
       await _saveStudentClasses();
 
       if (mounted) {
@@ -133,7 +126,6 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                     ),
                   ),
                   IconButton(
-                    // CORREGIDO: era "IOError" → debe ser "onSurface"
                     icon: Icon(Icons.close, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -185,15 +177,10 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     elevation: 2,
                   ),
-                  child: const Text(
-                    'Unirse a la Clase',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
+                  child: const Text('Unirse a la Clase', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
@@ -203,14 +190,17 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
     );
   }
 
-  // BUSCA LA CLASE REAL POR CÓDIGO DE ACCESO
+  // VERSIÓN 100% CORREGIDA Y FUNCIONAL
   Future<void> _validateAndJoinClass(String accessCode) async {
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys();
     ClassModel? foundClass;
+    String? teacherKey;
 
+    // Buscar la clase del profesor
     for (String key in keys) {
       if (key.startsWith('teacherClasses_')) {
+        teacherKey = key;
         final classesJson = prefs.getString(key) ?? '[]';
         final List<dynamic> classesList = json.decode(classesJson);
 
@@ -225,72 +215,70 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
       }
     }
 
-    if (foundClass != null) {
-      if (_classes.any((c) => c.id == foundClass!.id)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Ya estás inscrito en esta clase'),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-        return;
-      }
-
-      // CORREGIDO: copyWith no tiene parámetro 'students', así que creamos una copia manual
-      final enrolledClass = ClassModel(
-        id: foundClass.id,
-        name: foundClass.name,
-        subject: foundClass.subject,
-        accessCode: foundClass.accessCode,
-        students: List<String>.from(foundClass.students)..add(_studentEmail), // Aquí sí se agrega
-        teacherEmail: foundClass.teacherEmail,
-        createdAt: foundClass.createdAt,
-        description: foundClass.description,
-        section: foundClass.section,
-        room: foundClass.room,
+    if (foundClass == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('Código inválido'), backgroundColor: Colors.red),
       );
+      return;
+    }
 
-      setState(() {
-        _classes.add(enrolledClass);
-      });
-      await _saveStudentClasses();
+    if (_classes.any((c) => c.id == foundClass!.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('Ya estás inscrito en esta clase'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('¡Te has unido a "${enrolledClass.name}" exitosamente!'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            action: SnackBarAction(
-              label: 'Ver clase',
-              textColor: Colors.white,
-              onPressed: () => _navigateToClass(enrolledClass),
-            ),
+    // AÑADIR ALUMNO A LA CLASE DEL PROFESOR
+    final updatedClassForTeacher = foundClass.copyWith(
+      students: List<String>.from(foundClass.students)..add(_studentEmail),
+    );
+
+    // Actualizar en las clases del profesor
+    if (teacherKey != null) {
+      final teacherClassesJson = prefs.getString(teacherKey) ?? '[]';
+      final List<dynamic> teacherClassesList = json.decode(teacherClassesJson);
+
+      final updatedTeacherList = teacherClassesList.map((c) {
+        final map = c as Map<String, dynamic>;
+        if (map['id'] == foundClass!.id) {  // ← CORREGIDO: foundClass! porque ya sabemos que no es null
+          map['students'] = updatedClassForTeacher.students;
+        }
+        return map;
+      }).toList();
+
+      await prefs.setString(teacherKey, json.encode(updatedTeacherList));
+    }
+
+    // Agregar a las clases del alumno (misma ID)
+    setState(() {
+      _classes.add(updatedClassForTeacher);
+    });
+    await _saveStudentClasses();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('¡Te has unido a "${updatedClassForTeacher.name}"!'),
+          backgroundColor: Colors.green,
+          action: SnackBarAction(
+            label: 'Entrar a la clase',
+            textColor: Colors.white,
+            onPressed: () => _openClass(updatedClassForTeacher),
           ),
-        );
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Código inválido. Verifica e intenta de nuevo.'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
+        ),
+      );
     }
   }
 
-  void _navigateToClass(ClassModel classModel) {
+  void _openClass(ClassModel classModel) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ClassDetailPage(classModel: classModel),
+        builder: (context) => StudentClassDetailPage(
+          classModel: classModel,
+          studentEmail: _studentEmail,
+        ),
       ),
     );
   }
@@ -304,16 +292,9 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
         title: const Text('Mis Clases'),
         backgroundColor: theme.appBarTheme.backgroundColor,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.go('/home'),
-        ),
+        leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.go('/home')),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            onPressed: _loadData,
-            tooltip: 'Actualizar',
-          ),
+          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _loadData, tooltip: 'Actualizar'),
         ],
       ),
       body: _isLoading
@@ -333,28 +314,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
   }
 
   Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 60,
-            height: 60,
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-              strokeWidth: 3,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Cargando tus clases...',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-            ),
-          ),
-        ],
-      ),
-    );
+    return const Center(child: CircularProgressIndicator());
   }
 
   Widget _buildClassesGrid() {
@@ -364,27 +324,12 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
           child: Row(
             children: [
-              Text(
-                'Tus Clases',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
+              Text('Tus Clases', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _classes.length.toString(),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.primaryColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                child: Text(_classes.length.toString(), style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -404,7 +349,7 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
                 final clase = _classes[index];
                 return StudentClassCard(
                   classModel: clase,
-                  onTap: () => _navigateToClass(clase),
+                  onTap: () => _openClass(clase),
                   onLeaveClass: () => _leaveClass(index),
                 );
               },
@@ -425,47 +370,19 @@ class _StudentClassesPageState extends State<StudentClassesPage> {
             Container(
               width: 120,
               height: 120,
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.school_rounded,
-                size: 50,
-                color: AppTheme.primaryColor,
-              ),
+              decoration: BoxDecoration(color: AppTheme.primaryColor.withOpacity(0.1), shape: BoxShape.circle),
+              child: Icon(Icons.school_rounded, size: 50, color: AppTheme.primaryColor),
             ),
             const SizedBox(height: 32),
-            Text(
-              'Aún no tienes clases',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text('Aún no tienes clases', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
             const SizedBox(height: 12),
-            Text(
-              'Únete a una clase usando un código de acceso proporcionado por tu profesor',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text('Únete a una clase usando un código de acceso proporcionado por tu profesor', style: TextStyle(color: Colors.grey[600]), textAlign: TextAlign.center),
             const SizedBox(height: 32),
             ElevatedButton.icon(
               onPressed: _joinClass,
               icon: const Icon(Icons.vpn_key_rounded),
               label: const Text('Unirse con Código'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 2,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor, foregroundColor: Colors.white),
             ),
           ],
         ),

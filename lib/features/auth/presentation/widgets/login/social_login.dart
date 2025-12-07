@@ -45,18 +45,7 @@ class SocialLogin extends StatelessWidget {
             const SizedBox(width: 16),
 
             // FACEBOOK BUTTON (deshabilitado por ahora)
-            _buildSocialButton(
-              icon: Icons.facebook,
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Inicio de sesión con Facebook no disponible'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-              },
-              isDarkMode: isDarkMode,
-            ),
+
           ],
         ),
       ],

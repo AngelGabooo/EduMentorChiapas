@@ -1,5 +1,4 @@
 // features/tutor/presentation/pages/widgets/tutor_register_form.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,7 +9,6 @@ import 'tutor_register_button.dart';
 
 class TutorRegisterForm extends StatefulWidget {
   const TutorRegisterForm({super.key});
-
   @override
   State<TutorRegisterForm> createState() => _TutorRegisterFormState();
 }
@@ -28,6 +26,7 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
   final _nombreHijoController = TextEditingController();
   final _edadHijoController = TextEditingController();
   final _telefonoController = TextEditingController();
+  final _emailHijoController = TextEditingController(); // ← NUEVO: Correo del alumno
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -45,6 +44,7 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
     _nombreHijoController.dispose();
     _edadHijoController.dispose();
     _telefonoController.dispose();
+    _emailHijoController.dispose(); // ← Dispose nuevo
     super.dispose();
   }
 
@@ -90,8 +90,7 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
       final String password = _passwordController.text;
       final String hashedPassword = sha256.convert(utf8.encode(password)).toString();
 
-      // === AQUÍ ESTO ES LO QUE FALTABA: Guardar como usuario real ===
-      // Esto permite que el login lo reconozca después
+      // === Guardar como usuario real ===
       await prefs.setString('user_$email', json.encode({
         'email': email,
         'hashed_password': hashedPassword,
@@ -100,26 +99,25 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
         'profileCompleted': true,
       }));
 
-      // Añadir a la lista global de correos registrados
       final registeredJson = prefs.getString('registered_emails') ?? '[]';
       final List<dynamic> registered = json.decode(registeredJson);
       if (!registered.contains(email)) {
         registered.add(email);
         await prefs.setString('registered_emails', json.encode(registered));
       }
-      // ====================================================================
 
-      // GUARDAR TODO LO NECESARIO PARA QUE EL REDIRECT FUNCIONE
-      await prefs.setString('current_user_email', email);     // CLAVE PRINCIPAL
+      // === GUARDAR TODO LO NECESARIO ===
+      await prefs.setString('current_user_email', email);
       await prefs.setString('email', email);
       await prefs.setString('role', 'tutor');
       await prefs.setString('full_name', name);
       await prefs.setString('hashed_password', hashedPassword);
 
-      // Datos específicos del tutor
+      // Datos del tutor
       await prefs.setString('hijo_nombre', _nombreHijoController.text.trim());
       await prefs.setString('hijo_edad', _edadHijoController.text.trim());
       await prefs.setString('tutor_telefono', _telefonoController.text.trim());
+      await prefs.setString('hijo_email', _emailHijoController.text.trim().toLowerCase()); // ← AQUÍ SE GUARDA EL CORREO DEL ALUMNO
       await prefs.setBool('profileCompleted', true);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -130,7 +128,6 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
         ),
       );
 
-      // Ir directo al home del tutor
       if (mounted) {
         context.go('/tutor-home');
       }
@@ -247,6 +244,21 @@ class _TutorRegisterFormState extends State<TutorRegisterForm> {
               prefixIcon: Icon(Icons.child_care),
             ),
             validator: (v) => v?.trim().isEmpty ?? true ? 'Ingresa el nombre del niño/a' : null,
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _emailHijoController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Correo del alumno (obligatorio)',
+              hintText: 'ejemplo@alumno.com',
+              prefixIcon: Icon(Icons.school),
+            ),
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Ingresa el correo del alumno';
+              if (!v.contains('@')) return 'Correo inválido';
+              return null;
+            },
           ),
           const SizedBox(height: 16),
           TextFormField(

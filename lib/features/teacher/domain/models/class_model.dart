@@ -1,3 +1,4 @@
+// lib/features/teacher/domain/models/class_model.dart
 class ClassModel {
   final String id;
   final String name;
@@ -53,21 +54,27 @@ class ClassModel {
     );
   }
 
+  // ← AÑADIDO: copyWith completo para poder actualizar students
   ClassModel copyWith({
+    String? id,
     String? name,
     String? subject,
+    String? accessCode,
+    List<String>? students,
+    String? teacherEmail,
+    DateTime? createdAt,
     String? description,
     String? section,
     String? room,
   }) {
     return ClassModel(
-      id: id,
+      id: id ?? this.id,
       name: name ?? this.name,
       subject: subject ?? this.subject,
-      accessCode: accessCode,
-      students: students,
-      teacherEmail: teacherEmail,
-      createdAt: createdAt,
+      accessCode: accessCode ?? this.accessCode,
+      students: students ?? this.students,
+      teacherEmail: teacherEmail ?? this.teacherEmail,
+      createdAt: createdAt ?? this.createdAt,
       description: description ?? this.description,
       section: section ?? this.section,
       room: room ?? this.room,
@@ -75,8 +82,7 @@ class ClassModel {
   }
 }
 
-// domain/models/class_model.dart (reemplaza la clase ClassMaterial)
-
+// ClassMaterial (sin cambios, ya estaba perfecto)
 enum ClassMaterialType {
   document,
   assignment,
@@ -91,7 +97,7 @@ class ClassMaterial {
   final String title;
   final String description;
   final ClassMaterialType type;
-  final String? filePath;      // <-- CAMBIO: ahora es ruta local
+  final String? filePath;
   final String? fileName;
   final String? fileType;
   final DateTime createdAt;

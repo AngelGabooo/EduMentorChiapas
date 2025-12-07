@@ -4,7 +4,53 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 import '../widgets/tutor_home_card.dart';
+import '../../../teacher/domain/models/class_model.dart'; // ← Necesario para ClassModel
+
+enum PeriodType { semestre, cuatrimestre }
+
+// ← TU MODELO ORIGINAL (NO LO CAMBIAMOS)
+class StudentPartialGrades {
+  final String studentEmail;
+  final String subject;
+  final String classId;
+  double parcial1;
+  double parcial2;
+  double parcial3;
+
+  StudentPartialGrades({
+    required this.studentEmail,
+    required this.subject,
+    required this.classId,
+    this.parcial1 = 0.0,
+    this.parcial2 = 0.0,
+    this.parcial3 = 0.0,
+  });
+
+  double get promedio => (parcial1 + parcial2 + parcial3) / 3;
+  bool get tieneCalificaciones => parcial1 > 0 || parcial2 > 0 || parcial3 > 0;
+
+  Map<String, dynamic> toJson() => {
+    'studentEmail': studentEmail,
+    'subject': subject,
+    'classId': classId,
+    'parcial1': parcial1,
+    'parcial2': parcial2,
+    'parcial3': parcial3,
+  };
+
+  factory StudentPartialGrades.fromJson(Map<String, dynamic> json) {
+    return StudentPartialGrades(
+      studentEmail: json['studentEmail'] ?? '',
+      subject: json['subject'] ?? 'Sin materia',
+      classId: json['classId'] ?? '',
+      parcial1: (json['parcial1'] ?? 0.0).toDouble(),
+      parcial2: (json['parcial2'] ?? 0.0).toDouble(),
+      parcial3: (json['parcial3'] ?? 0.0).toDouble(),
+    );
+  }
+}
 
 class TutorHomePage extends StatefulWidget {
   const TutorHomePage({super.key});
@@ -16,7 +62,9 @@ class TutorHomePage extends StatefulWidget {
 class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProviderStateMixin {
   String hijoNombre = "Tu hijo/a";
   String hijoEdad = "";
-  Map<String, double> calificaciones = {};
+  String hijoEmail = "";
+  List<StudentPartialGrades> calificacionesPorMateria = [];
+  Map<String, PeriodType> periodosPorClase = {};
   bool isLoading = true;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -48,31 +96,86 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
     super.dispose();
   }
 
+  // ← CÓDIGO 100% CORREGIDO: ahora sí ve las calificaciones del profesor
   Future<void> _cargarDatos() async {
     final prefs = await SharedPreferences.getInstance();
+
     setState(() {
       hijoNombre = prefs.getString('hijo_nombre') ?? "Tu hijo/a";
       hijoEdad = prefs.getString('hijo_edad') ?? "";
-      calificaciones = {
-        "Matemáticas": 8.7,
-        "Español": 9.2,
-        "Ciencias": 7.9,
-        "Historia": 9.5,
-        "Inglés": 8.4,
-        "Educación Física": 10.0,
-        "Arte": 9.8,
-        "Música": 8.9,
-      };
-      isLoading = false;
+      hijoEmail = prefs.getString('hijo_email') ?? "";
+      isLoading = true;
+      calificacionesPorMateria.clear();
+      periodosPorClase.clear();
     });
+
+    if (hijoEmail.isEmpty) {
+      setState(() => isLoading = false);
+      _animationController.forward();
+      return;
+    }
+
+    try {
+      final keys = prefs.getKeys();
+
+      for (String key in keys) {
+        if (key.startsWith('teacherClasses_') || key.startsWith('studentClasses_')) {
+          final classesJson = prefs.getString(key) ?? '[]';
+          final List<dynamic> classesList = json.decode(classesJson);
+
+          for (var classJson in classesList) {
+            final classModel = ClassModel.fromJson(classJson as Map<String, dynamic>);
+            if (!classModel.students.contains(hijoEmail)) continue;
+
+            final classId = classModel.id;
+            final subject = classModel.subject;
+
+            // Cargar periodo
+            final periodStr = prefs.getString('periodType_$classId') ?? 'cuatrimestre';
+            final periodType = periodStr == 'semestre' ? PeriodType.semestre : PeriodType.cuatrimestre;
+            periodosPorClase[classId] = periodType;
+
+            // Cargar calificaciones del profesor (solo tienen studentEmail)
+            final gradesJson = prefs.getString('partialGrades_$classId') ?? '[]';
+            final List<dynamic> gradesList = json.decode(gradesJson);
+
+            final gradeFromProfesor = gradesList
+                .map((e) => Map<String, dynamic>.from(e))
+                .firstWhere(
+                  (g) => g['studentEmail'] == hijoEmail,
+              orElse: () => {'studentEmail': hijoEmail, 'parcial1': 0.0, 'parcial2': 0.0, 'parcial3': 0.0},
+            );
+
+            // Crear el objeto con materia y clase
+            final calificacion = StudentPartialGrades(
+              studentEmail: hijoEmail,
+              subject: subject,
+              classId: classId,
+              parcial1: (gradeFromProfesor['parcial1'] ?? 0.0).toDouble(),
+              parcial2: (gradeFromProfesor['parcial2'] ?? 0.0).toDouble(),
+              parcial3: (gradeFromProfesor['parcial3'] ?? 0.0).toDouble(),
+            );
+
+            calificacionesPorMateria.add(calificacion);
+          }
+        }
+      }
+    } catch (e) {
+      print("Error cargando calificaciones del tutor: $e");
+    }
+
+    setState(() => isLoading = false);
     _animationController.forward();
   }
 
-  double get promedio => calificaciones.isEmpty
-      ? 0
-      : calificaciones.values.reduce((a, b) => a + b) / calificaciones.length;
+  double get promedioGeneral {
+    final conCalificaciones = calificacionesPorMateria.where((g) => g.tieneCalificaciones);
+    if (conCalificaciones.isEmpty) return 0.0;
+    return conCalificaciones.map((g) => g.promedio).reduce((a, b) => a + b) / conCalificaciones.length;
+  }
 
-  // CERRAR SESIÓN CORREGIDO
+  bool get tieneCalificaciones => calificacionesPorMateria.any((g) => g.tieneCalificaciones);
+
   Future<void> _cerrarSesion() async {
     final prefs = await SharedPreferences.getInstance();
     await Future.wait([
@@ -83,6 +186,7 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
       prefs.remove('hashed_password'),
       prefs.remove('hijo_nombre'),
       prefs.remove('hijo_edad'),
+      prefs.remove('hijo_email'),
       prefs.remove('tutor_telefono'),
       prefs.remove('profileCompleted'),
     ]);
@@ -107,55 +211,36 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
 
     return Scaffold(
       backgroundColor: colors.background,
-      // FAB SACADO DEL NestedScrollView → AHORA ESTÁ EN EL Scaffold (correcto)
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _mostrarContactoMaestro,
         backgroundColor: colors.primary,
         foregroundColor: colors.onPrimary,
         elevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         icon: const Icon(Icons.chat_rounded),
         label: const Text("Contactar Maestro"),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      // body: NestedScrollView → todo lo demás igual
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) {
           return [
             SliverAppBar(
-              expandedHeight: 220.0,
+              expandedHeight: 240.0,
               floating: false,
               pinned: true,
               backgroundColor: colors.primary,
               foregroundColor: colors.onPrimary,
               flexibleSpace: FlexibleSpaceBar(
-                centerTitle: false,
-                titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-                title: Text(
-                  "Progreso Académico",
-                  style: TextStyle(
-                    color: colors.onPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
-                ),
                 background: Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        colors.primary,
-                        colors.primaryContainer,
-                      ],
+                      colors: [colors.primary, colors.primaryContainer],
                     ),
                   ),
                   child: Stack(
                     children: [
-                      // Elementos decorativos de fondo
                       Positioned(
                         top: -20,
                         right: -20,
@@ -183,7 +268,7 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                       Align(
                         alignment: Alignment.bottomLeft,
                         child: Padding(
-                          padding: const EdgeInsets.all(24.0),
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,17 +277,28 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                                 "Bienvenido/a,",
                                 style: TextStyle(
                                   color: colors.onPrimary.withOpacity(0.9),
-                                  fontSize: 16,
+                                  fontSize: 17,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 6),
                               Text(
                                 hijoNombre,
                                 style: TextStyle(
                                   color: colors.onPrimary,
-                                  fontSize: 28,
+                                  fontSize: 32,
                                   fontWeight: FontWeight.bold,
+                                  letterSpacing: -0.5,
+                                  height: 1.1,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                "Progreso Académico",
+                                style: TextStyle(
+                                  color: colors.onPrimary,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
                                   letterSpacing: -0.5,
                                 ),
                               ),
@@ -241,25 +337,17 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                       showDialog(
                         context: context,
                         builder: (ctx) => AlertDialog(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           title: const Text("Cerrar sesión"),
                           content: const Text("¿Estás seguro de que deseas salir?"),
                           actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text("Cancelar"),
-                            ),
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
                             TextButton(
                               onPressed: () {
                                 Navigator.pop(ctx);
                                 _cerrarSesion();
                               },
-                              child: const Text(
-                                "Salir",
-                                style: TextStyle(color: Colors.red),
-                              ),
+                              child: const Text("Salir", style: TextStyle(color: Colors.red)),
                             ),
                           ],
                         ),
@@ -290,10 +378,7 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text(
-                "Cargando datos...",
-                style: TextStyle(color: Colors.grey),
-              ),
+              Text("Cargando datos...", style: TextStyle(color: Colors.grey)),
             ],
           ),
         )
@@ -311,7 +396,7 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                       child: TutorHomeCard(
                         hijoNombre: hijoNombre,
                         hijoEdad: hijoEdad,
-                        promedio: promedio,
+                        promedio: tieneCalificaciones ? promedioGeneral : null,
                       ),
                     ),
                   ),
@@ -325,27 +410,24 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            "Materias",
+                            "Calificaciones por Materia",
                             style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.bold,
                               letterSpacing: -0.5,
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
                               color: colors.primary.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.school_rounded,
-                                    size: 16,
-                                    color: colors.primary),
+                                Icon(Icons.school_rounded, size: 16, color: colors.primary),
                                 const SizedBox(width: 6),
                                 Text(
-                                  "${calificaciones.length} materias",
+                                  "${calificacionesPorMateria.length} materia${calificacionesPorMateria.length == 1 ? '' : 's'}",
                                   style: theme.textTheme.labelMedium?.copyWith(
                                     color: colors.primary,
                                     fontWeight: FontWeight.w600,
@@ -364,18 +446,13 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                           (context, index) {
-                        final subject = calificaciones.keys.elementAt(index);
-                        final grade = calificaciones.values.elementAt(index);
+                        final calificacion = calificacionesPorMateria[index];
                         return SlideTransition(
                           position: _slideAnimation,
-                          child: _SubjectCard(
-                            subject: subject,
-                            grade: grade,
-                            index: index,
-                          ),
+                          child: _MateriaConParcialesCard(calificacion: calificacion),
                         );
                       },
-                      childCount: calificaciones.length,
+                      childCount: calificacionesPorMateria.length,
                     ),
                   ),
                 ),
@@ -388,18 +465,176 @@ class _TutorHomePageState extends State<TutorHomePage> with SingleTickerProvider
   }
 }
 
+// NUEVO CARD: Muestra los 3 parciales
+class _MateriaConParcialesCard extends StatelessWidget {
+  final StudentPartialGrades calificacion;
+  const _MateriaConParcialesCard({required this.calificacion});
+
+  Color _getColor(double nota) {
+    if (nota >= 9.0) return Colors.green;
+    if (nota >= 8.0) return Colors.blue;
+    if (nota >= 7.0) return Colors.orange;
+    return Colors.red;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final tieneCal = calificacion.tieneCalificaciones;
+    final promedio = calificacion.promedio;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        elevation: 5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: tieneCal
+                            ? [_getColor(promedio), _getColor(promedio).withOpacity(0.7)]
+                            : [Colors.grey, Colors.grey.shade400],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          calificacion.subject,
+                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          tieneCal ? "Promedio: ${promedio.toStringAsFixed(1)}" : "Sin calificaciones aún",
+                          style: TextStyle(
+                            color: tieneCal ? _getColor(promedio) : Colors.grey,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (tieneCal)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _getColor(promedio),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(color: _getColor(promedio).withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4)),
+                        ],
+                      ),
+                      child: Text(
+                        promedio.toStringAsFixed(1),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (!tieneCal)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceVariant.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: colors.onSurface.withOpacity(0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.hourglass_empty_rounded, color: colors.onSurface.withOpacity(0.6)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          "El maestro aún no ha registrado las calificaciones de esta materia.",
+                          style: TextStyle(color: colors.onSurface.withOpacity(0.8), fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else ...[
+                _buildParcialRow("1er Parcial", calificacion.parcial1),
+                _buildParcialRow("2do Parcial", calificacion.parcial2),
+                _buildParcialRow("3er Parcial", calificacion.parcial3),
+                const Divider(height: 32),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Promedio Final", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(
+                      promedio.toStringAsFixed(1),
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _getColor(promedio)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParcialRow(String label, double nota) {
+    final color = _getColor(nota);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(width: 110, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500))),
+          Expanded(
+            child: LinearProgressIndicator(
+              value: nota / 10,
+              backgroundColor: Colors.grey[300],
+              color: color,
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 60,
+            child: Text(
+              nota == 0 ? "—" : nota.toStringAsFixed(1),
+              style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 16),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // EL RESTO DEL CÓDIGO QUEDA 100% IGUAL (sin tocar nada)
 class _SubjectCard extends StatelessWidget {
   final String subject;
   final double grade;
   final int index;
-
   const _SubjectCard({
     required this.subject,
     required this.grade,
     required this.index,
   });
-
   Color _getGradeColor(double grade) {
     if (grade >= 9.5) return Colors.green;
     if (grade >= 9.0) return Colors.blue;
@@ -407,7 +642,6 @@ class _SubjectCard extends StatelessWidget {
     if (grade >= 7.0) return Colors.orangeAccent;
     return Colors.red;
   }
-
   IconData _getSubjectIcon(String subject) {
     switch (subject) {
       case "Matemáticas":
@@ -430,7 +664,6 @@ class _SubjectCard extends StatelessWidget {
         return Icons.school_rounded;
     }
   }
-
   String _getGradeLabel(double grade) {
     if (grade >= 9.5) return "Excelente";
     if (grade >= 9.0) return "Muy Bueno";
@@ -438,12 +671,10 @@ class _SubjectCard extends StatelessWidget {
     if (grade >= 7.0) return "Regular";
     return "Necesita Mejorar";
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Material(
@@ -557,20 +788,16 @@ class _SubjectCard extends StatelessWidget {
 
 class ContactoMaestroBottomSheet extends StatelessWidget {
   final String hijoNombre;
-
   const ContactoMaestroBottomSheet({super.key, required this.hijoNombre});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-
     return Container(
       margin: const EdgeInsets.all(16),
       child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         elevation: 8,
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -582,9 +809,7 @@ class ContactoMaestroBottomSheet extends StatelessWidget {
                 children: [
                   Text(
                     "Contactar al Maestro",
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   IconButton(
                     onPressed: () => Navigator.pop(context),
@@ -604,15 +829,10 @@ class ContactoMaestroBottomSheet extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      colors.primary.withOpacity(0.05),
-                      colors.primary.withOpacity(0.02),
-                    ],
+                    colors: [colors.primary.withOpacity(0.05), colors.primary.withOpacity(0.02)],
                   ),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: colors.primary.withOpacity(0.1),
-                  ),
+                  border: Border.all(color: colors.primary.withOpacity(0.1)),
                 ),
                 child: Row(
                   children: [
@@ -620,59 +840,28 @@ class ContactoMaestroBottomSheet extends StatelessWidget {
                       width: 70,
                       height: 70,
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            colors.primary,
-                            colors.primaryContainer,
-                          ],
-                        ),
+                        gradient: LinearGradient(colors: [colors.primary, colors.primaryContainer]),
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(
-                            color: colors.primary.withOpacity(0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
+                          BoxShadow(color: colors.primary.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
                         ],
                       ),
-                      child: Icon(
-                        Icons.person_rounded,
-                        color: colors.onPrimary,
-                        size: 32,
-                      ),
+                      child: Icon(Icons.person_rounded, color: colors.onPrimary, size: 32),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            "Profesor Asignado",
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: colors.onSurface.withOpacity(0.8),
-                            ),
-                          ),
+                          Text("Profesor Asignado", style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurface.withOpacity(0.8))),
                           const SizedBox(height: 6),
-                          Text(
-                            "Maestro Ejemplo",
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          Text("Maestro Ejemplo", style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Icon(Icons.email_rounded,
-                                  size: 16,
-                                  color: colors.primary),
+                              Icon(Icons.email_rounded, size: 16, color: colors.primary),
                               const SizedBox(width: 6),
-                              Text(
-                                "maestro.ejemplo@escuela.com",
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: colors.primary,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                              Text("maestro.ejemplo@escuela.com", style: theme.textTheme.bodyMedium?.copyWith(color: colors.primary, fontWeight: FontWeight.w500)),
                             ],
                           ),
                         ],
@@ -687,17 +876,14 @@ class ContactoMaestroBottomSheet extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {
-                        launchUrl(Uri.parse(
-                            "mailto:maestro.ejemplo@escuela.com?subject=Consulta sobre $hijoNombre&body=Hola profesor,%0A%0AMi hijo/a es $hijoNombre y me gustaría hablar sobre..."));
+                        launchUrl(Uri.parse("mailto:maestro.ejemplo@escuela.com?subject=Consulta sobre $hijoNombre&body=Hola profesor,%0A%0AMi hijo/a es $hijoNombre y me gustaría hablar sobre..."));
                         Navigator.pop(context);
                       },
                       icon: const Icon(Icons.email_rounded),
                       label: const Text("Enviar Correo"),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         side: BorderSide(color: colors.primary),
                       ),
                     ),
@@ -713,19 +899,14 @@ class ContactoMaestroBottomSheet extends StatelessWidget {
                       label: const Text("Llamar"),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Cerrar"),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cerrar")),
             ],
           ),
         ),
