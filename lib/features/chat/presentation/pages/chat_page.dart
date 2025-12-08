@@ -9,6 +9,13 @@ import '../widgets/chat_history_drawer.dart';
 import '../widgets/message_bubble.dart';
 import 'dart:math'; // Para random en respuestas variables
 
+// AÑADIDO: Import del servicio Gemini (no borra nada, solo se agrega)
+import 'package:proyectoedumentor/core/services/gemini_service.dart';
+
+// AÑADIDOS: Para historial local y UUID
+import 'package:proyectoedumentor/core/services/chat_storage_service.dart';
+import 'package:uuid/uuid.dart';
+
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
 
@@ -19,47 +26,123 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _messageController = TextEditingController();
-  final List<ChatMessage> _messages = [];
+  List<ChatMessage> _messages = [];
   bool _isLoading = false;
   String _currentTopic = ''; // Nueva: Memoria del tema actual para contexto
 
-  final List<ChatHistory> _chatHistory = [
-    ChatHistory(
-      id: '1',
-      title: 'Dudas sobre matemáticas',
-      lastMessage: '¿Cómo resuelvo esta ecuación?',
-      timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-      messageCount: 5,
-    ),
-    ChatHistory(
-      id: '2',
-      title: 'Historia de Chiapas',
-      lastMessage: '¿Cuáles son los pueblos originarios?',
-      timestamp: DateTime.now().subtract(const Duration(days: 1)),
-      messageCount: 8,
-    ),
-    ChatHistory(
-      id: '3',
-      title: 'Aprendiendo español',
-      lastMessage: 'Ejercicios de gramática',
-      timestamp: DateTime.now().subtract(const Duration(days: 3)),
-      messageCount: 12,
-    ),
-    ChatHistory(
-      id: '4',
-      title: 'Ciencias naturales',
-      lastMessage: 'El sistema solar y planetas',
-      timestamp: DateTime.now().subtract(const Duration(days: 5)),
-      messageCount: 6,
-    ),
-  ];
+  // AÑADIDO: Instancia del servicio Gemini (se agrega aquí, no borra nada)
+  final GeminiService _geminiService = GeminiService();
+
+  // AÑADIDO: Servicio de almacenamiento local y generador de ID
+  final ChatStorageService _storageService = ChatStorageService();
+  final Uuid _uuid = const Uuid();
+
+  // ID del chat actual (null si no hay uno activo)
+  String? _currentChatId;
+
+  // Historial dinámico (se carga desde local)
+  List<ChatHistory> _chatHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistoryAndCurrentChat();
+  }
+
+  Future<void> _loadHistoryAndCurrentChat() async {
+    final history = await _storageService.loadChatHistory();
+    final currentId = await _storageService.getCurrentChatId();
+
+    setState(() {
+      _chatHistory = history;
+      _currentChatId = currentId;
+    });
+
+    if (_currentChatId != null) {
+      final savedMessages = await _storageService.loadMessages(_currentChatId!);
+      setState(() {
+        _messages = savedMessages;
+      });
+    }
+  }
+
+  Future<void> _ensureCurrentChat(String userMessage) async {
+    if (_currentChatId != null) return;
+
+    final newId = _uuid.v4();
+    final title = userMessage.length > 30
+        ? '${userMessage.substring(0, 30)}...'
+        : userMessage;
+
+    final newChat = ChatHistory(
+      id: newId,
+      title: title,
+      lastMessage: userMessage,
+      timestamp: DateTime.now(),
+      messageCount: 1,
+    );
+
+    setState(() {
+      _currentChatId = newId;
+      _chatHistory.insert(0, newChat);
+    });
+  }
+
+  Future<void> _updateCurrentChat(String lastMessage) async {
+    if (_currentChatId == null) return;
+
+    final updatedChat = ChatHistory(
+      id: _currentChatId!,
+      title: _chatHistory.firstWhere((c) => c.id == _currentChatId).title,
+      lastMessage: lastMessage.length > 50 ? '${lastMessage.substring(0, 50)}...' : lastMessage,
+      timestamp: DateTime.now(),
+      messageCount: _messages.length,
+    );
+
+    final index = _chatHistory.indexWhere((c) => c.id == _currentChatId);
+    if (index != -1) {
+      setState(() {
+        _chatHistory[index] = updatedChat;
+        _chatHistory.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      });
+    }
+
+    await _storageService.saveChat(updatedChat, _messages);
+  }
+
+  // NUEVO: Borrar un chat individual
+  Future<void> _deleteChat(String chatId) async {
+    await _storageService.deleteChat(chatId);
+    setState(() {
+      _chatHistory.removeWhere((c) => c.id == chatId);
+      if (_currentChatId == chatId) {
+        _currentChatId = null;
+        _messages.clear();
+      }
+    });
+  }
+
+  // NUEVO: Borrar todos los chats
+  Future<void> _deleteAllChats() async {
+    await _storageService.clearAll();
+    setState(() {
+      _chatHistory.clear();
+      _currentChatId = null;
+      _messages.clear();
+    });
+    _geminiService.limpiarHistorial();
+  }
 
   void _openHistoryDrawer() {
     _scaffoldKey.currentState?.openEndDrawer();
   }
 
-  void _sendMessage(String message) {
+  // REEMPLAZADA: Esta función ahora usa Gemini REAL en lugar del fake
+  void _sendMessage(String message) async {
     if (message.trim().isEmpty) return;
+
+    // Si es el primer mensaje, crear chat nuevo
+    await _ensureCurrentChat(message);
 
     setState(() {
       _messages.add(ChatMessage(
@@ -72,21 +155,23 @@ class _ChatPageState extends State<ChatPage> {
 
     _messageController.clear();
 
-    // Delay variable para simular "pensando" más natural (1-3 seg)
-    final random = Random();
-    Future.delayed(Duration(seconds: 1 + random.nextInt(2)), () {
-      setState(() {
-        final response = _generateAIResponse(message, _messages);
-        _messages.add(ChatMessage(
-          text: response,
-          isUser: false,
-          timestamp: DateTime.now(),
-        ));
-        _isLoading = false;
-      });
+    // USAMOS GEMINI DE VERDAD
+    final respuesta = await _geminiService.enviarMensaje(message);
+
+    setState(() {
+      _messages.add(ChatMessage(
+        text: respuesta,
+        isUser: false,
+        timestamp: DateTime.now(),
+      ));
+      _isLoading = false;
     });
+
+    // Guardar en local
+    await _updateCurrentChat(respuesta);
   }
 
+  // TU FUNCIÓN ORIGINAL SE QUEDA TAL CUAL (no se borra, solo se deja como respaldo)
   String _generateAIResponse(String userMessage, List<ChatMessage> messages) {
     final lowerMessage = userMessage.toLowerCase();
     final random = Random();
@@ -297,69 +382,20 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _messages.clear();
       _currentTopic = ''; // Reset tema al nuevo chat
+      _currentChatId = null;
     });
-    _scaffoldKey.currentState?.openEndDrawer();
+    _geminiService.limpiarHistorial(); // Limpia el historial de Gemini
+    _scaffoldKey.currentState?.closeEndDrawer();
   }
 
-  void _loadChatHistory(String chatId) {
+  Future<void> _loadChatHistory(String chatId) async {
+    final messages = await _storageService.loadMessages(chatId);
     setState(() {
-      _messages.clear();
-      _currentTopic = chatId == '1' ? 'matemáticas' :
-      chatId == '2' ? 'historia' :
-      chatId == '3' ? 'español' : 'ciencias'; // Set tema basado en historial
-
-      if (chatId == '1') {
-        _messages.addAll([
-          ChatMessage(
-            text: 'Hola, necesito ayuda con matemáticas',
-            isUser: true,
-            timestamp: DateTime.now().subtract(const Duration(hours: 3)),
-          ),
-          ChatMessage(
-            text: '¡Hola! Claro que sí. ¿Con qué tema de matemáticas necesitas ayuda? ¿Álgebra, geometría, cálculo?',
-            isUser: false,
-            timestamp: DateTime.now().subtract(const Duration(hours: 3)),
-          ),
-          ChatMessage(
-            text: 'Tengo problemas resolviendo ecuaciones cuadráticas',
-            isUser: true,
-            timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-          ),
-          ChatMessage(
-            text: 'Te explico: Para resolver ecuaciones cuadráticas de la forma ax² + bx + c = 0, puedes usar la fórmula general. ¿Quieres que te muestre un ejemplo paso a paso?',
-            isUser: false,
-            timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-          ),
-        ]);
-      } else if (chatId == '2') {
-        _messages.addAll([
-          ChatMessage(
-            text: '¿Qué pueblos originarios hay en Chiapas?',
-            isUser: true,
-            timestamp: DateTime.now().subtract(const Duration(days: 1)),
-          ),
-          ChatMessage(
-            text: 'Chiapas tiene una gran diversidad de pueblos originarios. Los principales son: tsotsiles, tseltales, ch\'oles, zoques, tojolabales, mames y lacandones. Cada uno tiene su propia lengua y tradiciones.',
-            isUser: false,
-            timestamp: DateTime.now().subtract(const Duration(days: 1)),
-          ),
-        ]);
-      } else {
-        _messages.addAll([
-          ChatMessage(
-            text: 'Hola, ¿cómo estás?',
-            isUser: true,
-            timestamp: DateTime.now().subtract(const Duration(hours: 3)),
-          ),
-          ChatMessage(
-            text: '¡Hola! Estoy aquí para ayudarte con tus preguntas educativas. ¿En qué tema necesitas ayuda hoy?',
-            isUser: false,
-            timestamp: DateTime.now().subtract(const Duration(hours: 3)),
-          ),
-        ]);
-      }
+      _messages = messages;
+      _currentChatId = chatId;
+      _geminiService.limpiarHistorial();
     });
-    _scaffoldKey.currentState?.openEndDrawer();
+    _scaffoldKey.currentState?.closeEndDrawer();
   }
 
   @override
@@ -398,6 +434,8 @@ class _ChatPageState extends State<ChatPage> {
         chatHistory: _chatHistory,
         onChatSelected: _loadChatHistory,
         onNewChat: _startNewChat,
+        onDeleteChat: _deleteChat, // NUEVO: Borrar individual
+        onDeleteAll: _deleteAllChats, // NUEVO: Borrar todos
       ),
       body: Column(
         children: [

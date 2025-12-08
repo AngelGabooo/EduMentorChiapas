@@ -6,7 +6,7 @@ import 'package:proyectoedumentor/config/theme/app_theme.dart';
 import 'package:proyectoedumentor/features/user_profilee/domain/entities/user_entity.dart';
 
 class CustomizeProfilePagee extends StatefulWidget {
-  final Map<String, dynamic>? extraData;  // Datos iniciales de extra
+  final Map<String, dynamic>? extraData;
 
   const CustomizeProfilePagee({super.key, this.extraData});
 
@@ -16,13 +16,12 @@ class CustomizeProfilePagee extends StatefulWidget {
 
 class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
   late TextEditingController _nameController;
-  String _selectedLanguageName = 'Español';  // Inicializado directamente (no late)
-  String _selectedLanguageCode = 'es';  // Inicializado directamente
-  String _selectedEducationLevel = 'Preparatoria';  // Inicializado directamente
-  List<String> _selectedSubjects = [];  // Inicializado directamente
-  String _selectedAvatar = '👤';  // Inicializado directamente
+  String _selectedLanguageName = 'Español';
+  String _selectedLanguageCode = 'es';
+  String _selectedEducationLevel = 'Preparatoria';
+  List<String> _selectedSubjects = [];
+  String _selectedAvatar = 'person';
 
-  // Listas actualizadas con idiomas del usuario
   final List<String> _languages = [
     'Español',
     'Tsotsil',
@@ -35,7 +34,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
     'Inglés'
   ];
 
-  // Mapa de nombre a código para guardar
   final Map<String, String> _languageNameToCode = {
     'Español': 'es',
     'Tsotsil': 'tsotsil',
@@ -48,7 +46,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
     'Inglés': 'en',
   };
 
-  // Mapa inverso para cargar nombre desde código
   final Map<String, String> _languageCodeToName = {
     'es': 'Español',
     'tsotsil': 'Tsotsil',
@@ -94,8 +91,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
   Future<void> _loadExistingData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      // Cargar desde extra si existe (de navegación)
       final extra = widget.extraData ?? {};
 
       // Nombre
@@ -103,28 +98,42 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
       _nameController.text = savedName;
 
       // Avatar
-      _selectedAvatar = extra['avatar'] ?? prefs.getString('selected_avatar') ?? '👤';
+      _selectedAvatar = extra['avatar'] ?? prefs.getString('selected_avatar') ?? 'person';
 
-      // Idioma: prioriza extra, luego prefs (guarda code, muestra name)
+      // Idioma: seguro contra valores inválidos
       final savedLangCode = extra['languageCode'] ?? prefs.getString('selected_language') ?? 'es';
-      _selectedLanguageCode = savedLangCode;
-      _selectedLanguageName = _languageCodeToName[savedLangCode] ?? 'Español';
+      if (_languageCodeToName.containsKey(savedLangCode)) {
+        _selectedLanguageCode = savedLangCode;
+        _selectedLanguageName = _languageCodeToName[savedLangCode]!;
+      } else {
+        _selectedLanguageCode = 'es';
+        _selectedLanguageName = 'Español';
+      }
 
-      // Nivel educativo
-      _selectedEducationLevel = extra['educationLevel'] ?? prefs.getString('education_level') ?? 'Preparatoria';
+      // Nivel educativo: SOLUCIÓN AL ERROR DEL DROPDOWN
+      final savedLevel = extra['educationLevel'] ?? prefs.getString('education_level');
+      if (savedLevel == null || !_educationLevels.contains(savedLevel)) {
+        _selectedEducationLevel = 'Preparatoria';
+      } else {
+        _selectedEducationLevel = savedLevel;
+      }
 
-      // Materias: prioriza extra, luego prefs (JSON)
+      // Materias favoritas
       final savedSubjects = extra['favoriteSubjects'] ?? [];
       if (savedSubjects.isNotEmpty) {
         _selectedSubjects = List<String>.from(savedSubjects);
       } else {
         final subjectsStr = prefs.getString('selected_subjects');
         if (subjectsStr != null) {
-          final subjectsMap = jsonDecode(subjectsStr) as Map<String, dynamic>;
-          _selectedSubjects = subjectsMap.entries
-              .where((entry) => entry.value as bool)
-              .map((entry) => entry.key)
-              .toList();
+          try {
+            final subjectsMap = jsonDecode(subjectsStr) as Map<String, dynamic>;
+            _selectedSubjects = subjectsMap.entries
+                .where((entry) => entry.value == true)
+                .map((entry) => entry.key)
+                .toList();
+          } catch (e) {
+            _selectedSubjects = [];
+          }
         }
       }
 
@@ -141,38 +150,28 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Guardar nombre
       await prefs.setString('full_name', _nameController.text.trim());
-
-      // Guardar avatar (si cambiaste, pero por ahora fijo; agrega selector si necesitas)
       await prefs.setString('selected_avatar', _selectedAvatar);
-
-      // Guardar idioma (código)
       await prefs.setString('selected_language', _selectedLanguageCode);
-
-      // Guardar nivel educativo
       await prefs.setString('education_level', _selectedEducationLevel);
 
-      // Guardar materias como JSON map
       final subjectsMap = <String, bool>{};
       for (var subject in _availableSubjects) {
         subjectsMap[subject] = _selectedSubjects.contains(subject);
       }
       await prefs.setString('selected_subjects', jsonEncode(subjectsMap));
 
-      // SnackBar de éxito
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Perfil actualizado correctamente'),
           backgroundColor: colorScheme.primary,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
 
-      context.pop();  // Regresar
+      // IMPORTANTE: pasar true para que la página anterior recargue
+      context.pop(true);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -238,7 +237,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            // Avatar
             Container(
               width: 120,
               height: 120,
@@ -252,7 +250,7 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
               ),
               child: Center(
                 child: Text(
-                  _selectedAvatar,  // Muestra el cargado
+                  _selectedAvatar,
                   style: const TextStyle(fontSize: 40),
                 ),
               ),
@@ -260,8 +258,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
             const SizedBox(height: 8),
             TextButton(
               onPressed: () {
-                // TODO: Implementar selector de avatar (puedes agregar un dialog con emojis)
-                // Por ahora, placeholder
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Selector de avatar en desarrollo')),
                 );
@@ -272,10 +268,8 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
               ),
             ),
             const SizedBox(height: 32),
-            // Campo de nombre
             _buildTextField('Nombre', _nameController, colorScheme),
             const SizedBox(height: 20),
-            // Selector de idioma
             _buildDropdown(
               'Idioma Principal',
               _selectedLanguageName,
@@ -284,7 +278,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
               colorScheme,
             ),
             const SizedBox(height: 20),
-            // Selector de nivel educativo
             _buildDropdown(
               'Nivel Educativo',
               _selectedEducationLevel,
@@ -293,7 +286,6 @@ class _CustomizeProfilePageeState extends State<CustomizeProfilePagee> {
               colorScheme,
             ),
             const SizedBox(height: 20),
-            // Selector de materias favoritas
             _buildSubjectsSelector(colorScheme),
           ],
         ),

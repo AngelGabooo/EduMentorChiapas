@@ -23,7 +23,7 @@ class _UserProfilePageeState extends State<UserProfilePagee> {
 
   // Variables para datos del perfil cargados
   String _fullName = 'Usuario';
-  String _avatar = '👤';
+  String _avatar = 'person';
   String _language = 'Español';
   String _educationLevel = 'No especificado';
   String _municipality = 'No especificado';
@@ -53,7 +53,7 @@ class _UserProfilePageeState extends State<UserProfilePagee> {
       _schoolName = prefs.getString('school_name') ?? 'No especificado';
 
       // De CustomizeProfile
-      _avatar = prefs.getString('selected_avatar') ?? '👤';
+      _avatar = prefs.getString('selected_avatar') ?? 'person';
       final subjectsStr = prefs.getString('selected_subjects');
       if (subjectsStr != null) {
         final subjectsMap = jsonDecode(subjectsStr) as Map<String, dynamic>;
@@ -90,9 +90,11 @@ class _UserProfilePageeState extends State<UserProfilePagee> {
     return langMap[code] ?? 'Español';
   }
 
-  void _editProfile() {
-    // Obtener datos actuales del usuario (incluyendo de Provider)
+  // FUNCIÓN CORREGIDA: ahora espera el resultado y recarga si se guardó
+  void _editProfile() async {
+    final prefs = await SharedPreferences.getInstance();
     final progressProvider = Provider.of<ProgressProvider>(context, listen: false);
+
     final userData = {
       'name': _fullName,
       'avatar': _avatar,
@@ -105,8 +107,17 @@ class _UserProfilePageeState extends State<UserProfilePagee> {
       'birthDate': _birthDate,
       'currentGrade': _currentGrade,
       'schoolName': _schoolName,
+      // Añadimos el código del idioma para que CustomizeProfile lo lea bien
+      'languageCode': prefs.getString('selected_language') ?? 'es',
     };
-    context.push('/customize-my-profile', extra: userData);
+
+    // Esperamos el resultado del pop()
+    final result = await context.push('/customize-my-profile', extra: userData);
+
+    // Si el usuario guardó y volvió (result == true), recargamos todo
+    if (result == true) {
+      await _loadProfileData(); // ESTO ES LO QUE HACÍA FALTA
+    }
   }
 
   void _goBackToHome() {

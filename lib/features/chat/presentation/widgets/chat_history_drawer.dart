@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:proyectoedumentor/config/theme/app_theme.dart';import 'package:proyectoedumentor/features/chat/domain/models/chat_history.dart';
+import 'package:proyectoedumentor/config/theme/app_theme.dart';
+import 'package:proyectoedumentor/features/chat/domain/models/chat_history.dart';
 
 class ChatHistoryDrawer extends StatelessWidget {
   final List<ChatHistory> chatHistory;
   final Function(String) onChatSelected;
   final VoidCallback onNewChat;
+  final Function(String) onDeleteChat; // NUEVO
+  final VoidCallback onDeleteAll;       // NUEVO
 
   const ChatHistoryDrawer({
     super.key,
     required this.chatHistory,
     required this.onChatSelected,
     required this.onNewChat,
+    required this.onDeleteChat,
+    required this.onDeleteAll,
   });
 
   @override
@@ -34,11 +39,7 @@ class ChatHistoryDrawer extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.history,
-                  color: AppTheme.primaryColor,
-                  size: 24,
-                ),
+                Icon(Icons.history, color: AppTheme.primaryColor, size: 24),
                 const SizedBox(width: 12),
                 Text(
                   'Historial de Chat',
@@ -53,27 +54,26 @@ class ChatHistoryDrawer extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: onNewChat,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onNewChat,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Nueva Conversación'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add, size: 18),
-                    SizedBox(width: 8),
-                    Text('Nueva Conversación'),
-                  ],
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: onDeleteAll,
+                  icon: const Icon(Icons.delete_forever, color: Colors.red),
+                  tooltip: 'Borrar todo el historial',
                 ),
-              ),
+              ],
             ),
           ),
           Expanded(
@@ -84,7 +84,23 @@ class ChatHistoryDrawer extends StatelessWidget {
               itemCount: chatHistory.length,
               itemBuilder: (context, index) {
                 final chat = chatHistory[index];
-                return _buildChatItem(chat, context, isDarkMode);
+                return Dismissible(
+                  key: Key(chat.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  onDismissed: (direction) {
+                    onDeleteChat(chat.id);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Conversación eliminada')),
+                    );
+                  },
+                  child: _buildChatItem(chat, context, isDarkMode),
+                );
               },
             ),
           ),

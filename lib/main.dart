@@ -1,12 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:proyectoedumentor/config/providers/theme_provider.dart';
 import 'package:proyectoedumentor/config/providers/progress_provider.dart';
 import 'package:proyectoedumentor/config/router/app_router.dart';
 import 'package:proyectoedumentor/config/theme/app_theme.dart';
+import 'firebase_options.dart';
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized(); // sigue siendo buena práctica
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // FIX: Inicializa solo si no existe ya el app "[DEFAULT]" (evita duplicado)
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    if (e.toString().contains('duplicate-app')) {
+      // Ya está inicializado automáticamente (por plugins como google_sign_in)
+      print('Firebase ya inicializado (duplicado evitado).');
+    } else {
+      rethrow; // Lanza el error si es otro problema
+    }
+  }
+
   runApp(const MyApp());
 }
 

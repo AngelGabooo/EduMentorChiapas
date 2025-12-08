@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:proyectoedumentor/config/theme/app_theme.dart';
-import 'package:proyectoedumentor/config/providers/progress_provider.dart'; // Import nuevo
+import 'package:proyectoedumentor/config/providers/progress_provider.dart';
 
 class GamePlayPage extends StatefulWidget {
   final Map<String, dynamic> gameData;
@@ -21,24 +22,89 @@ class _GamePlayPageState extends State<GamePlayPage> {
   int? selectedAnswer;
   int score = 0;
   bool showResult = false;
+  late FlutterTts flutterTts;
+  bool isSpeaking = false;
 
   List<Map<String, dynamic>> get questions =>
-      widget.gameData['questions'] ?? [];
+      (widget.gameData['questions'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
 
-  Map<String, dynamic> get currentQuestion =>
-      questions.isNotEmpty ? questions[currentQuestionIndex] : {};
+  Map<String, dynamic> get gameInfo => widget.gameData['game'] as Map<String, dynamic>? ?? {};
+  String get gameTitle => gameInfo['title']?.toString() ?? 'Juego Educativo';
+  String get gameLanguage => widget.gameData['language']?.toString() ?? 'Español';
+
+  @override
+  void initState() {
+    super.initState();
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    flutterTts = FlutterTts();
+
+    // MAPEO EXACTO: tu idioma → código TTS real
+    final Map<String, String> ttsMap = {
+      'Español': 'es-MX',
+      'English': 'en-US',
+      'Lacandón': 'es-MX',
+      'Mam': 'es-GT',
+      'Tojol-ab\'al': 'es-MX',
+      'Zoque': 'es-MX',
+    };
+
+    final String ttsCode = ttsMap[gameLanguage] ?? 'es-MX';
+
+    await flutterTts.setLanguage(ttsCode);
+    await flutterTts.setSpeechRate(0.45);
+    await flutterTts.setVolume(1.0);
+    await flutterTts.setPitch(1.0);
+
+    // Aviso si es lengua indígena
+    if (!['Español', 'English'].contains(gameLanguage)) {
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Pregunta en $gameLanguage. Voz en español claro.'),
+              backgroundColor: Colors.deepPurple[700],
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      });
+    }
+
+    flutterTts.setCompletionHandler(() {
+      if (mounted) setState(() => isSpeaking = false);
+    });
+  }
+
+  Future<void> _speakQuestion() async {
+    if (isSpeaking) {
+      await flutterTts.stop();
+      setState(() => isSpeaking = false);
+      return;
+    }
+
+    final question = questions.isNotEmpty ? questions[currentQuestionIndex]['question']?.toString() ?? '' : '';
+    if (question.isEmpty) return;
+
+    setState(() => isSpeaking = true);
+    await flutterTts.speak(question);
+  }
 
   void _selectAnswer(int index) {
     setState(() {
       selectedAnswer = index;
       showResult = true;
 
-      if (index == currentQuestion['correctAnswer']) {
+      final correctIndex = questions[currentQuestionIndex]['correctAnswer'] as int?;
+      if (correctIndex == index) {
         score += 10;
       }
     });
 
     Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
       if (currentQuestionIndex < questions.length - 1) {
         setState(() {
           currentQuestionIndex++;
@@ -51,68 +117,37 @@ class _GamePlayPageState extends State<GamePlayPage> {
     });
   }
 
-  void _speakQuestion() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Leyendo pregunta: ${currentQuestion['question']}'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
   void _showGameOverDialog() {
     final progressProvider = Provider.of<ProgressProvider>(context, listen: false);
-    // Integra al progreso global: suma puntos y marca como completado
     progressProvider.addPoints(score);
-    progressProvider.completeGame(widget.gameData['game']['title']);
-
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
+    progressProvider.completeGame(gameTitle);
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (context) {
         return AlertDialog(
-          backgroundColor: theme.cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            '¡Juego Terminado!',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          backgroundColor: Theme.of(context).cardColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('¡Juego Completado!', textAlign: TextAlign.center),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Puntuación: $score/${questions.length * 10}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                'Puntuación: $score / ${questions.length * 10}',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
-              Text(
-                '¡Puntos agregados al progreso general! Total: ${progressProvider.totalPoints}',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium,
-              ),
-              Text(
-                'Has completado ${widget.gameData['game']?['title'] ?? 'el juego'}',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium,
-              ),
+              const SizedBox(height: 12),
+              Text('¡Has ganado $score puntos!', textAlign: TextAlign.center),
+              Text('Juego: $gameTitle', style: TextStyle(color: AppTheme.primaryColor)),
+              const SizedBox(height: 8),
+              Text('Idioma: $gameLanguage'),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => context.go('/games'),
-              child: Text(
-                'Volver a Juegos',
-                style: TextStyle(color: theme.colorScheme.primary),
-              ),
+              child: const Text('Volver a Juegos'),
             ),
             ElevatedButton(
               onPressed: () {
@@ -124,11 +159,8 @@ class _GamePlayPageState extends State<GamePlayPage> {
                   showResult = false;
                 });
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Jugar Otra Vez'),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+              child: const Text('Jugar de Nuevo', style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -137,191 +169,130 @@ class _GamePlayPageState extends State<GamePlayPage> {
   }
 
   @override
+  void dispose() {
+    flutterTts.stop();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
+    if (questions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Error')),
+        body: const Center(child: Text('No se pudieron cargar las preguntas')),
+      );
+    }
+
+    final currentQuestion = questions[currentQuestionIndex];
+    final options = (currentQuestion['options'] as List<dynamic>?)?.cast<String>() ?? [];
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: theme.appBarTheme.backgroundColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: theme.colorScheme.primary),
-          onPressed: () => context.go('/games'),
-        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.gameData['game']?['title'] ?? 'Juego',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              'Pregunta ${currentQuestionIndex + 1}/${questions.length}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.6),
-              ),
-            ),
+            Text(gameTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text('Pregunta ${currentQuestionIndex + 1}/${questions.length}', style: const TextStyle(fontSize: 12)),
           ],
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.volume_up, color: theme.colorScheme.primary),
+            icon: Icon(isSpeaking ? Icons.volume_up_rounded : Icons.volume_up_outlined),
             onPressed: _speakQuestion,
-            tooltip: 'Escuchar pregunta',
+            color: isSpeaking ? Colors.red : null,
           ),
           Container(
             margin: const EdgeInsets.all(8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withOpacity(0.1),
+              color: AppTheme.primaryColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Text(
-              'Puntos: $score',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.primary,
-              ),
-            ),
+            child: Text('Puntos: $score', style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
-      body: questions.isEmpty
-          ? Center(
-        child: Text(
-          'No hay preguntas disponibles',
-          style: theme.textTheme.bodyLarge,
-        ),
-      )
-          : Padding(
+      body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Barra de progreso
             LinearProgressIndicator(
               value: (currentQuestionIndex + 1) / questions.length,
-              backgroundColor: isDarkMode ? Colors.grey[700] : Colors.grey[300],
               color: AppTheme.primaryColor,
               minHeight: 8,
               borderRadius: BorderRadius.circular(4),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Tarjeta de pregunta
-            Card(
-              elevation: 4,
-              color: theme.cardColor,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+            // Indicador de lengua indígena
+            if (!['Español', 'English'].contains(gameLanguage))
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.deepPurple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: Colors.deepPurple),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.record_voice_over, size: 16, color: Colors.deepPurple),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Juego en $gameLanguage',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple),
+                    ),
+                  ],
+                ),
               ),
-              child: Container(
-                width: double.infinity,
+
+            Card(
+              child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
                     Text(
-                      currentQuestion['question'] ?? 'Pregunta no disponible',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                      currentQuestion['question']?.toString() ?? 'Pregunta no disponible',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 12),
-                    IconButton(
-                      icon: Icon(Icons.volume_up, size: 28),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
                       onPressed: _speakQuestion,
-                      color: theme.colorScheme.primary,
-                      tooltip: 'Escuchar pregunta en voz alta',
+                      icon: Icon(isSpeaking ? Icons.stop : Icons.volume_up),
+                      label: Text(isSpeaking ? 'Detener' : 'Escuchar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isSpeaking ? Colors.red : AppTheme.primaryColor,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Opciones de respuesta
+            const SizedBox(height: 20),
             Expanded(
               child: ListView.builder(
-                physics: const BouncingScrollPhysics(),
-                itemCount: (currentQuestion['options'] as List?)?.length ?? 0,
+                itemCount: options.length,
                 itemBuilder: (context, index) {
-                  final options = currentQuestion['options'] as List? ?? [];
-                  final option = options.isNotEmpty ? options[index] : 'Opción no disponible';
+                  final isCorrect = index == (currentQuestion['correctAnswer'] as int?);
                   final isSelected = selectedAnswer == index;
-                  final isCorrect = index == currentQuestion['correctAnswer'];
 
-                  Color? backgroundColor;
-                  Color? textColor = theme.colorScheme.onSurface;
-
-                  if (showResult) {
-                    if (isCorrect) {
-                      backgroundColor = const Color(0xFF10B981).withOpacity(0.1);
-                    } else if (isSelected && !isCorrect) {
-                      backgroundColor = const Color(0xFFEF4444).withOpacity(0.1);
-                    }
-                  } else {
-                    backgroundColor = theme.cardColor;
-                  }
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: Card(
-                      color: backgroundColor,
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : Colors.transparent,
-                          width: 2,
-                        ),
+                  return Card(
+                    color: showResult
+                        ? (isCorrect ? Colors.green.withOpacity(0.15) : isSelected ? Colors.red.withOpacity(0.15) : null)
+                        : null,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: showResult
+                            ? (isCorrect ? Colors.green : isSelected ? Colors.red : Colors.grey)
+                            : (isSelected ? AppTheme.primaryColor : Colors.grey),
+                        child: Text(String.fromCharCode(65 + index), style: const TextStyle(color: Colors.white)),
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        leading: CircleAvatar(
-                          backgroundColor: _getOptionColor(
-                              index,
-                              isSelected,
-                              isCorrect
-                          ),
-                          radius: 16,
-                          child: Text(
-                            String.fromCharCode(65 + index),
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: theme.textTheme.bodySmall?.fontSize,
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          option,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: textColor,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        onTap: () {
-                          if (!showResult) {
-                            _selectAnswer(index);
-                          }
-                        },
-                      ),
+                      title: Text(options[index]),
+                      onTap: showResult ? null : () => _selectAnswer(index),
                     ),
                   );
                 },
@@ -331,18 +302,5 @@ class _GamePlayPageState extends State<GamePlayPage> {
         ),
       ),
     );
-  }
-
-  Color _getOptionColor(int index, bool isSelected, bool isCorrect) {
-    if (showResult) {
-      if (isCorrect) {
-        return const Color(0xFF10B981);
-      } else if (isSelected && !isCorrect) {
-        return const Color(0xFFEF4444);
-      }
-    }
-    return isSelected
-        ? AppTheme.primaryColor
-        : Colors.grey;
   }
 }
