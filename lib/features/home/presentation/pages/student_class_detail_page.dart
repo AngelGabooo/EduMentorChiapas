@@ -9,6 +9,7 @@ import 'package:open_file/open_file.dart';
 
 import '../../../teacher/domain/models/class_model.dart';
 import '../../../../config/theme/app_theme.dart';
+import '../../../../core/localization/app_translations.dart';
 
 enum PeriodType { semestre, cuatrimestre }
 
@@ -65,10 +66,12 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
   Map<String, String> _comments = {};
   Map<String, String> _submittedFiles = {};
   Map<String, double> _taskGrades = {};
-
   Map<String, Map<String, String>> _allComments = {};
 
   bool _isPickingFile = false;
+
+  // Cache de traducciones
+  Map<String, String> _t = {};
 
   @override
   void initState() {
@@ -76,6 +79,40 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
     _tabController = TabController(length: 3, vsync: this);
     _loadAllData();
     FilePicker.platform.clearTemporaryFiles();
+    _loadTranslations();
+  }
+
+  // ← SE RECARGA AUTOMÁTICAMENTE CUANDO CAMBIA EL IDIOMA
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadTranslations();
+  }
+
+  Future<void> _loadTranslations() async {
+    final keys = [
+      'wall', 'assignments', 'grades', 'section', 'semester', 'quarter',
+      'your_comment', 'send', 'reply_to_teacher', 'teacher_reply',
+      'upload_assignment', 'uploading', 'deliver_assignment', 'approved_task',
+      'failed_task', 'no_materials', 'no_tasks', 'grades_by_partial',
+      'no_grades_yet', 'teacher_no_grades', 'final_average', 'approved', 'failed',
+      'not_delivered', 'comment_sent'
+    ];
+
+    Map<String, String> temp = {};
+    for (String key in keys) {
+      try {
+        temp[key] = await AppTranslations.tr(key);
+      } catch (e) {
+        temp[key] = key;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _t = temp;
+      });
+    }
   }
 
   @override
@@ -92,14 +129,17 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
       _loadStudentData(),
       _loadTaskGrades(),
       _loadAllComments(),
-    ]);
+    ]).catchError((e) {
+      // Evita que un error rompa todo
+    });
     if (mounted) setState(() {});
   }
 
   Future<void> _loadMaterials() async {
     final prefs = await SharedPreferences.getInstance();
-    final materialsJson = prefs.getString('classMaterials_${widget.classModel.id}') ?? '[]';
-    final List<dynamic> list = json.decode(materialsJson);
+    final String? jsonStr = prefs.getString('classMaterials_${widget.classModel.id}');
+    if (jsonStr == null) return;
+    final List<dynamic> list = json.decode(jsonStr);
     setState(() {
       _materials = list.map((e) => ClassMaterial.fromJson(e)).toList();
     });
@@ -107,8 +147,9 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
 
   Future<void> _loadGrades() async {
     final prefs = await SharedPreferences.getInstance();
-    final gradesJson = prefs.getString('partialGrades_${widget.classModel.id}') ?? '[]';
-    final List<dynamic> list = json.decode(gradesJson);
+    final String? jsonStr = prefs.getString('partialGrades_${widget.classModel.id}');
+    if (jsonStr == null) return;
+    final List<dynamic> list = json.decode(jsonStr);
     setState(() {
       _grades = list.map((e) => StudentPartialGrades.fromJson(e)).toList();
     });
@@ -124,8 +165,8 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
 
   Future<void> _loadStudentData() async {
     final prefs = await SharedPreferences.getInstance();
-    final commentsJson = prefs.getString('studentComments_${widget.classModel.id}_${widget.studentEmail}') ?? '{}';
-    final filesJson = prefs.getString('studentFiles_${widget.classModel.id}_${widget.studentEmail}') ?? '{}';
+    final String commentsJson = prefs.getString('studentComments_${widget.classModel.id}_${widget.studentEmail}') ?? '{}';
+    final String filesJson = prefs.getString('studentFiles_${widget.classModel.id}_${widget.studentEmail}') ?? '{}';
 
     setState(() {
       _comments = Map<String, String>.from(json.decode(commentsJson));
@@ -139,8 +180,9 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
 
     for (final material in _materials) {
       if (material.type != ClassMaterialType.assignment) continue;
-      final key = 'task_grades_${widget.classModel.id}_${material.id}';
-      final jsonStr = prefs.getString(key) ?? '{}';
+      final String key = 'task_grades_${widget.classModel.id}_${material.id}';
+      final String? jsonStr = prefs.getString(key);
+      if (jsonStr == null) continue;
       final Map<String, dynamic> map = json.decode(jsonStr);
       if (map.containsKey(widget.studentEmail)) {
         grades[material.id] = (map[widget.studentEmail] as num).toDouble();
@@ -155,10 +197,16 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
     final Map<String, Map<String, String>> all = {};
 
     for (final material in _materials) {
-      final key = 'comments_${widget.classModel.id}_${material.id}';
-      final jsonStr = prefs.getString(key) ?? '{}';
-      final Map<String, dynamic> map = json.decode(jsonStr);
-      all[material.id] = map.map((k, v) => MapEntry(k, v.toString()));
+      final String key = 'comments_${widget.classModel.id}_${material.id}';
+      final String? jsonStr = prefs.getString(key);
+      if (jsonStr == null || jsonStr.isEmpty) continue;
+      try {
+        final Map<String, dynamic> map = json.decode(jsonStr);
+        all[material.id] = map.map((k, v) => MapEntry(k, v.toString()));
+      } catch (e) {
+        // Evita el error JsonCodec
+        continue;
+      }
     }
 
     setState(() => _allComments = all);
@@ -176,8 +224,8 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
     await _saveStudentData();
 
     final prefs = await SharedPreferences.getInstance();
-    final key = 'comments_${widget.classModel.id}_$materialId';
-    final current = prefs.getString(key) ?? '{}';
+    final String key = 'comments_${widget.classModel.id}_$materialId';
+    final String current = prefs.getString(key) ?? '{}';
     final Map<String, dynamic> map = json.decode(current);
     map[widget.studentEmail] = comment.trim();
     await prefs.setString(key, json.encode(map));
@@ -186,7 +234,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Comentario enviado'), backgroundColor: Colors.green),
+        SnackBar(content: Text(_t['comment_sent'] ?? 'Comentario enviado'), backgroundColor: Colors.green),
       );
     }
   }
@@ -196,17 +244,17 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Responder al profesor"),
+        title: Text(_t['reply_to_teacher'] ?? 'Responder al profesor'),
         content: TextField(
           controller: controller,
           maxLines: 3,
-          decoration: const InputDecoration(
-            hintText: "Escribe tu respuesta...",
+          decoration: InputDecoration(
+            hintText: 'Escribe tu respuesta...',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
           ElevatedButton(
             onPressed: () async {
               final reply = controller.text.trim();
@@ -214,7 +262,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
               await _submitComment(materialId, reply);
               Navigator.pop(context);
             },
-            child: const Text("Enviar"),
+            child: Text(_t['send'] ?? 'Enviar'),
           ),
         ],
       ),
@@ -224,7 +272,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
   Future<void> _uploadAssignment(String materialId) async {
     if (_isPickingFile) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Espera a que termine la selección")),
+        SnackBar(content: Text('Espera a que termine la selección')),
       );
       return;
     }
@@ -236,9 +284,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
       final result = await FilePicker.platform.pickFiles();
 
       if (!mounted) return;
-      if (result == null || result.files.isEmpty || result.files.single.path == null) {
-        return;
-      }
+      if (result == null || result.files.isEmpty || result.files.single.path == null) return;
 
       final file = result.files.single;
       final fileName = file.name;
@@ -272,9 +318,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isPickingFile = false);
-      }
+      if (mounted) setState(() => _isPickingFile = false);
     }
   }
 
@@ -316,54 +360,23 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text(
-                            widget.classModel.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 34,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
+                          Text(widget.classModel.name, style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
-                          Text(
-                            widget.classModel.subject,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          Text(widget.classModel.subject, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600)),
                           if (widget.classModel.section != null)
-                            Text(
-                              'Sección ${widget.classModel.section!}',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 17,
-                              ),
-                            ),
+                            Text('${_t['section'] ?? 'Sección'} ${widget.classModel.section!}', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 17)),
                           const SizedBox(height: 20),
                           Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.25),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
+                                decoration: BoxDecoration(color: Colors.white.withOpacity(0.25), borderRadius: BorderRadius.circular(14)),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     const Icon(Icons.vpn_key, size: 18, color: Colors.white),
                                     const SizedBox(width: 8),
-                                    Text(
-                                      widget.classModel.accessCode,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15,
-                                      ),
-                                    ),
+                                    Text(widget.classModel.accessCode, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
                                   ],
                                 ),
                               ),
@@ -371,18 +384,14 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                 decoration: BoxDecoration(
-                                  color: _periodType == PeriodType.semestre
-                                      ? Colors.blue.shade700
-                                      : Colors.green.shade700,
+                                  color: _periodType == PeriodType.semestre ? Colors.blue.shade700 : Colors.green.shade700,
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Text(
-                                  _periodType == PeriodType.semestre ? 'Semestre' : 'Cuatrimestre',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
+                                  _periodType == PeriodType.semestre
+                                      ? (_t['semester'] ?? 'Semestre')
+                                      : (_t['quarter'] ?? 'Cuatrimestre'),
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                                 ),
                               ),
                             ],
@@ -401,10 +410,10 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                   labelColor: AppTheme.primaryColor,
                   unselectedLabelColor: Colors.grey[600],
                   indicatorColor: AppTheme.primaryColor,
-                  tabs: const [
-                    Tab(text: 'Muro'),
-                    Tab(text: 'Tareas'),
-                    Tab(text: 'Calificaciones'),
+                  tabs: [
+                    Tab(text: _t['wall'] ?? 'Muro'),
+                    Tab(text: _t['assignments'] ?? 'Tareas'),
+                    Tab(text: _t['grades'] ?? 'Calificaciones'),
                   ],
                 ),
               ),
@@ -424,16 +433,14 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
     );
   }
 
-  // === TU COMENTARIO CON INICIAL ADAPTADA AL TEMA (CLARO/OSCURO) ===
   Widget _buildWallTab(bool isDark) {
     if (_materials.isEmpty) {
-      return const Center(child: Text("El profesor aún no ha publicado nada", style: TextStyle(fontSize: 16, color: Colors.grey)));
+      return Center(child: Text(_t['no_materials'] ?? "El profesor aún no ha publicado nada", style: const TextStyle(fontSize: 16, color: Colors.grey)));
     }
 
     String getInitial() {
       final namePart = widget.studentEmail.split('@').first;
-      if (namePart.isEmpty) return "A";
-      return namePart[0].toUpperCase();
+      return namePart.isEmpty ? "A" : namePart[0].toUpperCase();
     }
 
     return ListView.builder(
@@ -445,7 +452,6 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
         final fileName = _submittedFiles[material.id];
         final grade = _taskGrades[material.id] ?? 0.0;
         final commentController = TextEditingController(text: myComment);
-
         final allComments = _allComments[material.id] ?? {};
 
         return Card(
@@ -488,7 +494,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Tu comentario:", style: TextStyle(fontWeight: FontWeight.w600)),
+                    Text(_t['your_comment'] ?? "Tu comentario:", style: const TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 8),
                     TextField(
                       controller: commentController,
@@ -508,7 +514,6 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                       maxLines: 3,
                     ),
 
-                    // TU COMENTARIO CON INICIAL ADAPTADA AL TEMA
                     if (myComment.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Container(
@@ -545,7 +550,6 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                       ),
                     ],
 
-                    // RESPUESTA DEL PROFESOR
                     if (allComments.containsKey('teacher_reply_${widget.studentEmail}')) ...[
                       const SizedBox(height: 12),
                       Container(
@@ -564,14 +568,14 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text("Respuesta del profesor", style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                                  Text(_t['teacher_reply'] ?? "Respuesta del profesor", style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                                   const SizedBox(height: 4),
                                   Text(allComments['teacher_reply_${widget.studentEmail}']!, style: TextStyle(color: isDark ? Colors.white : Colors.black87)),
                                   const SizedBox(height: 8),
                                   TextButton.icon(
                                     onPressed: () => _replyToTeacher(material.id),
                                     icon: const Icon(Icons.reply, size: 16),
-                                    label: const Text("Responder al profesor"),
+                                    label: Text(_t['reply_to_teacher'] ?? "Responder al profesor"),
                                     style: TextButton.styleFrom(foregroundColor: AppTheme.primaryColor),
                                   ),
                                 ],
@@ -584,10 +588,9 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                   ],
                 ),
 
-                // ENTREGA DE TAREA
                 if (material.type == ClassMaterialType.assignment) ...[
                   const SizedBox(height: 16),
-                  const Text("Entregar tarea:", style: TextStyle(fontWeight: FontWeight.w600)),
+                  Text(_t['deliver_assignment'] ?? "Entregar tarea:", style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
                   if (fileName != null)
                     Container(
@@ -619,14 +622,14 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                       icon: _isPickingFile
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.upload),
-                      label: Text(_isPickingFile ? "Subiendo..." : "Subir archivo"),
+                      label: Text(_isPickingFile ? (_t['uploading'] ?? "Subiendo...") : (_t['upload_assignment'] ?? "Subir archivo")),
                     ),
                   if (grade > 0 && fileName != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Center(
                         child: Text(
-                          grade >= 70 ? "Aprobado" : "Reprobado",
+                          grade >= 70 ? (_t['approved_task'] ?? "Aprobado") : (_t['failed_task'] ?? "Reprobado"),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -646,7 +649,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
 
   Widget _buildAssignmentsTab() {
     final assignments = _materials.where((m) => m.type == ClassMaterialType.assignment).toList();
-    if (assignments.isEmpty) return const Center(child: Text("No hay tareas asignadas"));
+    if (assignments.isEmpty) return Center(child: Text(_t['no_tasks'] ?? "No hay tareas asignadas"));
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: assignments.length,
@@ -658,7 +661,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
           child: ListTile(
             leading: Icon(Icons.assignment, color: entregado != null ? Colors.green : Colors.grey),
             title: Text(m.title),
-            subtitle: Text(entregado ?? "Sin entregar"),
+            subtitle: Text(entregado ?? (_t['not_delivered'] ?? "Sin entregar")),
             trailing: entregado != null
                 ? Row(
               mainAxisSize: MainAxisSize.min,
@@ -685,6 +688,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
       orElse: () => StudentPartialGrades(studentEmail: widget.studentEmail),
     );
     final tareasEntregadas = _materials.where((m) => m.type == ClassMaterialType.assignment && _submittedFiles.containsKey(m.id)).toList();
+
     return RefreshIndicator(
       onRefresh: _loadAllData,
       child: SingleChildScrollView(
@@ -699,16 +703,16 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                 padding: const EdgeInsets.all(28),
                 child: Column(
                   children: [
-                    Text("Calificaciones por Parciales", style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(_t['grades_by_partial'] ?? "Calificaciones por Parciales", style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 20),
                     if (!myGrade.tieneCalificaciones)
                       Column(
                         children: [
                           Icon(Icons.hourglass_empty_rounded, size: 80, color: Colors.grey[400]),
                           const SizedBox(height: 16),
-                          const Text("Aún no tienes calificaciones por parciales", style: TextStyle(fontSize: 18)),
+                          Text(_t['no_grades_yet'] ?? "Aún no tienes calificaciones por parciales", style: const TextStyle(fontSize: 18)),
                           const SizedBox(height: 8),
-                          Text("El profesor aún no ha registrado tus notas", style: TextStyle(color: Colors.grey[600])),
+                          Text(_t['teacher_no_grades'] ?? "El profesor aún no ha registrado tus notas", style: TextStyle(color: Colors.grey[600])),
                         ],
                       )
                     else ...[
@@ -719,7 +723,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("Promedio Final", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          Text(_t['final_average'] ?? "Promedio Final", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                           Text(
                             myGrade.promedio.toStringAsFixed(1),
                             style: TextStyle(
@@ -739,7 +743,7 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
                         ),
                         child: Center(
                           child: Text(
-                            myGrade.aprobado ? "¡Aprobado!" : "Reprobado",
+                            myGrade.aprobado ? (_t['approved'] ?? "¡Aprobado!") : (_t['failed'] ?? "Reprobado"),
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
@@ -754,26 +758,30 @@ class _StudentClassDetailPageState extends State<StudentClassDetailPage> with Si
               ),
             ),
             const SizedBox(height: 30),
-            if (tareasEntregadas.isNotEmpty) ...[
-              Text("Calificaciones de Tareas", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              ...tareasEntregadas.map((material) {
-                final grade = _taskGrades[material.id] ?? 0.0;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: grade >= 70 ? Colors.green : grade > 0 ? Colors.red : Colors.grey,
-                      child: Text(grade > 0 ? grade.toStringAsFixed(1) : "--", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                    title: Text(material.title, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text("Entregado: ${_submittedFiles[material.id]}"),
-                    trailing: Text(grade >= 70 ? "Aprobado" : grade > 0 ? "Reprobado" : "Sin calificar",
-                        style: TextStyle(color: grade >= 70 ? Colors.green : grade > 0 ? Colors.red : Colors.grey, fontWeight: FontWeight.bold)),
-                  ),
-                );
-              }),
-            ] else if (myGrade.tieneCalificaciones)
+            if (tareasEntregadas.isNotEmpty)
+              Column(
+                children: [
+                  Text("Calificaciones de Tareas", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  ...tareasEntregadas.map((material) {
+                    final grade = _taskGrades[material.id] ?? 0.0;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: grade >= 70 ? Colors.green : grade > 0 ? Colors.red : Colors.grey,
+                          child: Text(grade > 0 ? grade.toStringAsFixed(1) : "--", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                        title: Text(material.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text("Entregado: ${_submittedFiles[material.id]}"),
+                        trailing: Text(grade >= 70 ? (_t['approved_task'] ?? "Aprobado") : grade > 0 ? (_t['failed_task'] ?? "Reprobado") : "Sin calificar",
+                            style: TextStyle(color: grade >= 70 ? Colors.green : grade > 0 ? Colors.red : Colors.grey, fontWeight: FontWeight.bold)),
+                      ),
+                    );
+                  }).toList(),
+                ],
+              )
+            else if (myGrade.tieneCalificaciones)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
