@@ -191,16 +191,19 @@ class _RegisterFormState extends State<RegisterForm> {
           'profileCompleted': false,
         }));
 
-        // MANTENER compatibilidad con tu código anterior (por si otras pantallas lo usan)
-        await prefs.setString('email', email);
+        // ← AQUÍ ESTÁN LOS CAMBIOS CLAVE (SIN ESTO NO FUNCIONA EL REDIRECT)
+        await prefs.setString('current_user_email', email);           // ← ¡¡NECESARIO PARA SESIÓN!!
         await prefs.setString('role', _selectedRole!);
         await prefs.setString('full_name', _nameController.text.trim());
         await prefs.setBool('profileCompleted', false);
+        await prefs.setBool('just_registered', true);                 // ← ¡¡PARA IR A /profile!!
 
         // Añadir a la lista de correos registrados
         await _addToRegisteredEmails(email);
 
         print('DEBUG Registro: profileCompleted set to false');
+        print('DEBUG Registro: current_user_email guardado → $email');
+        print('DEBUG Registro: just_registered = true → irá a /profile');
 
         // Limpiar campos
         _nameController.clear();
@@ -213,17 +216,14 @@ class _RegisterFormState extends State<RegisterForm> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('¡Registro iniciado! Completa tu perfil para continuar.'),
+              content: Text('¡Registro exitoso! Completa tu perfil'),
               backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
           );
 
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            if (mounted) {
-              print('DEBUG: Navegando a /profile');
-              context.go('/profile');
-            }
-          });
+          // ← AHORA SÍ TE LLEVARÁ A /profile CORRECTAMENTE
+          context.go('/profile');
         }
       } catch (e) {
         if (mounted) {

@@ -1,4 +1,3 @@
-
 // AppConstants actualizada con la nueva ruta
 class AppConstants {
   static const String appName = 'EduMentor AI';

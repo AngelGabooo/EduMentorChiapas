@@ -5,7 +5,7 @@ import 'package:proyectoedumentor/core/constants/app_constants.dart';
 import 'package:proyectoedumentor/config/theme/app_theme.dart';
 import '../widgets/profile_form/profile_form.dart';
 
-class UserProfilePage extends StatefulWidget { // ← Cambio: Stateful para manejar guardado
+class UserProfilePage extends StatefulWidget {
   const UserProfilePage({super.key});
 
   @override
@@ -15,17 +15,17 @@ class UserProfilePage extends StatefulWidget { // ← Cambio: Stateful para mane
 class _UserProfilePageState extends State<UserProfilePage> {
   bool _isLoading = false;
 
-  Future<void> _completeProfile() async { // ← NUEVO: Método para guardar y navegar
+  Future<void> _completeProfile() async {
     setState(() => _isLoading = true);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('profileCompleted', true); // ← Marca como completado
-      print('DEBUG Profile: profileCompleted set to true'); // ← Debug
+      await prefs.setBool('profileCompleted', true);
+      print('DEBUG Profile: profileCompleted set to true');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('¡Perfil completado! Bienvenido a EduMentor.'), backgroundColor: Colors.green),
         );
-        context.go('/home'); // Navega a home
+        context.go('/home');
       }
     } catch (e) {
       if (mounted) {
@@ -55,7 +55,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           style: TextStyle(color: theme.colorScheme.onSurface, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        actions: [ // ← NUEVO: Botón para completar (puedes moverlo al body si prefieres)
+        actions: [
           IconButton(
             icon: Icon(Icons.check, color: theme.colorScheme.primary),
             onPressed: _isLoading ? null : _completeProfile, // Llama al método
@@ -68,7 +68,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header informativo (sin cambios)
+
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
